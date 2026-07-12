@@ -1,5 +1,10 @@
 # AILang
 
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![Status: Pre-Alpha](https://img.shields.io/badge/status-Pre--Alpha-orange.svg)](#status)
+[![Spec: v0.2.1](https://img.shields.io/badge/spec-v0.2.1-frozen-informational.svg)](./docs/SPEC.md)
+[![Discussions](https://img.shields.io/github/discussions/miuiadmin/ailang)](https://github.com/miuiadmin/ailang/discussions)
+
 > **An AI-native systems programming language** — built for AI to understand, generate, and maintain.
 
 🌐 **English** | [简体中文](./README.zh-CN.md)
