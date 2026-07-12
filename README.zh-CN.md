@@ -183,8 +183,8 @@ Apache-2.0 为宽松协议（允许商用、修改、再分发），并含显式
 
 ## 联系
 
-- 仓库：（待公开）
-- 设计讨论：（待建立）
+- 仓库：https://github.com/miuiadmin/ailang
+- 设计讨论：https://github.com/miuiadmin/ailang/discussions
 
 ---
 

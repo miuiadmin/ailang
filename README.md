@@ -185,8 +185,8 @@ Apache-2.0 is a permissive license (commercial use, modification, and distributi
 
 ## Contact
 
-- Repository: (to be made public)
-- Design discussion: (to be set up)
+- Repository: https://github.com/miuiadmin/ailang
+- Design discussion: https://github.com/miuiadmin/ailang/discussions
 
 ---
 
