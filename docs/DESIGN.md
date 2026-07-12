@@ -252,7 +252,7 @@ stmt        := "let" ident (":" type)? "=" expr
             | "return" expr?
             | "throw" expr                        // 语句级，类型 never（SPEC §22 #10、SPEC §26 #4）
             | "if" | "for" | "while" | "loop" | "match"
-            | "spawn" ("detached")? ( call | block ) | "cancel" expr | "parallel" ...  // SPEC §24 #4/#9
+            | "spawn" ("detached")? "actor"? ( postfix | block ) | "cancel" expr | "parallel" ...  // SPEC §24 #4/#5/#9（postfix 含被调者＋后缀，镜像 SPEC §18）
             | "unsafe" block | expr
 expr        := pratt（见下）
 ```
@@ -270,7 +270,7 @@ expr        := pratt（见下）
  7  postfix: call()  index[]  field.
  8  primary: literal | ident | "(" expr ")" | struct_init     // Variant(args) 复用 call 文法（SPEC §26 #2）
 ```
-`borrow` / `borrow_mut` / `move` / `copy` / `await` / `try` 作为一元前缀运算符（`await`/`try` 紧贴 postfix：`await f()` / `try f()`，SPEC §24 #3、SPEC §26 #1）。`try expr` = unwrap-or-propagate（Rust `?` 等价）；`try { } catch { }` 为表达式级捕获（SPEC §18 `try_catch`）。`throw` 为**语句级控制流构造**（非运算符），类型 `never`（⊥，SPEC §26 #4），见 SPEC §9、SPEC §26 #6。
+`borrow` / `borrow_mut` / `move` / `copy` / `await` / `try` 作为一元前缀运算符（`await`/`try` 紧贴 postfix：`await f()` / `try f()`，SPEC §24 #3、SPEC §26 #1）。`try expr` = unwrap-or-propagate（类 Rust `?`，但无 `From` 隐式转换——`E1≠E2` 类型错，SPEC §26 #5）；`try { } catch { }` 为局部捕获（SPEC §18 `try_catch`、SPEC §26 #1）。`throw` 为**语句级控制流构造**（非运算符），类型 `never`（⊥，SPEC §26 #4），见 SPEC §9、SPEC §26 #6。
 
 ### 陷阱
 - **可选分号 + return 表达式**：`return a + b` 换行后结束；但 `return a\n + b` 是否续行需明确规则——v0.2 规定「二元运算符在行尾 → 续行」。
@@ -317,7 +317,7 @@ pub struct HirFn {
     pub output: HirOutput,
     pub effects: ResolvedEffects,      // 总是完整推断集
     pub errors: Vec<HirErrorRef>,      // 从 Result<T,E> 派生
-    pub ownership: OwnershipSig,       // { output: New|Borrowed|Move }（无 inputs——mode 在 params，SPEC §25 #3）
+    pub ownership: OwnershipSig,       // { output: New|Move }（无 inputs——mode 在 params；无 Borrowed——SPEC §10.3 禁 borrow 返回，SPEC §25 #2/#3）
     pub body: HirBlock,
 }
 ```
@@ -474,7 +474,7 @@ AILang IR → 构建 LLVM Module → 优化 passes（内联 / 死代码删除 / 
 ### 陷阱
 - `string` 需最小 runtime（len+ptr；GC 推后）。
 - **panic 展开与 FFI 边界（SPEC §26 #3、SPEC §27 #4）**：panic 经 LLVM landing pad / personality function 栈展开 + Drop；展开至 **Task 边界**（→ Task 错误态）或 **`extern` 帧**（→ **转进程 abort**：C 无 Drop、不可跨语言栈展开，**非 UB**；C 的 `longjmp` 跨 FFI 进 AILang 帧 = UB 禁）；landing pad / abort-on-FFI 须由最小 runtime 提供。
-- **`async/task/spawn/channel/select` 的 codegen 需状态机 + executor——**v0.2 仅标记，不做 codegen**（调用报「not yet supported」）。语义见 SPEC §24 决议记录 V：`async fn` → `Future<T>` 状态机（**无 `Pin`**，borrow 禁跨 await，见 SPEC §10.3 / DESIGN §9.1 / MEMORY §8）、`Channel` = MPMC + close、`spawn` 返回 `TaskHandle`（结构化作用域 join / `detached`）、`actor` = Task + `on` 邮箱循环、`cancel` = 协作式（await 点丢弃状态机 → 确定性释放）、阻塞经 `spawn_blocking`（独立线程池，不占 M:N worker，SPEC §24 #7）。
+- **`async/task/spawn/channel/select` 的 codegen 需状态机 + executor——**v0.2 仅标记，不做 codegen**（调用报「not yet supported」）。语义见 SPEC §24 决议记录 V：`async fn` → `Future<T>` 状态机（**无 `Pin`**，borrow 禁跨 await，见 SPEC §10.3 / DESIGN §9.1 / MEMORY §7）、`Channel` = MPMC + close、`spawn` 返回 `TaskHandle`（结构化作用域 join / `detached`）、`actor` = Task + `on` 邮箱循环、`cancel` = 协作式（await 点丢弃状态机 → 确定性释放）、阻塞经 `spawn_blocking`（独立线程池，不占 M:N worker，SPEC §24 #7）。
 - 错误传播：v0.2 不引入 `?`，强制 `match`，codegen 直白。
 
 ---

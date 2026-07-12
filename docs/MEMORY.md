@@ -82,7 +82,7 @@ print(file)            // ❌ AIL2001 Use after move
 |------|------|------|
 | **位复制 Copy** | `int` `uint` `float` `bool` `byte` + 全 Copy/COW 字段 struct | 赋值即复制，原值仍可用 |
 | **COW 值类型** | `string` `List` `Map` `Set` | 赋值=共享缓冲（**原子引用计数**），修改=克隆；值语义，行为同 Copy；**`Send`**（SPEC §22 #2） |
-| **Move** | `File` `Socket` `Connection` `Thread` 等资源型 | 赋值即转移，原值不可用；使用须显式 `borrow`/`borrow_mut`（不可 `copy`） |
+| **Move** | `File` `Socket` `Connection` 等资源型 | 赋值即转移，原值不可用；使用须显式 `borrow`/`borrow_mut`（不可 `copy`） |
 
 ```ail
 let a = 10
@@ -263,7 +263,7 @@ for item in list { ... }
 // 编译优化为指针循环，无迭代器对象开销
 ```
 
-`Semantic Type`（`type UserId = int + meaning { doc: "用户标识" }`——nominal 语义新类型，区别于透明别名 `type Alias = int`）、`Optional<T>`、`Result<T,E>` 等均零成本展开（DESIGN §12 类型映射）。
+`Semantic Type`（`type UserId = int` + `meaning UserId: "用户标识"`——nominal 语义新类型，区别于透明别名 `type Alias = int`）、`Optional<T>`、`Result<T,E>` 等均零成本展开（DESIGN §12 类型映射）。
 
 ---
 

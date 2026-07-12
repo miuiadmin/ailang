@@ -63,7 +63,7 @@ fn main() -> void {
 }
 ```
 
-> **整数算术语义（SPEC §27 #1/#2/#3）**：`a + b` 溢出——release **二补数回绕**（规范）、debug **panic `ArithmeticOverflow`**；整数除零 / 取模零 → **panic `DivideByZero`**；浮点遵循 **IEEE 754**（`x/0.0`→`±inf`、`0.0/0.0`→`NaN`，**永不 panic**）。显式控制用 `math.checked_add` / `math.wrapping_add` / `math.checked_div` / `math.is_nan`（STDLIB §6.1）。
+> **整数算术语义（SPEC §27 #1/#2/#3）**：`a + b` 溢出——release **二补数回绕**（规范）、debug **panic `ArithmeticOverflow`**；整数除零 / 取模零 → **panic `DivideByZero`**；浮点遵循 **IEEE 754**（`x/0.0`→`±inf`、`0.0/0.0`→`NaN`，**永不 panic**）。显式控制用 `math.checked_add` / `math.wrapping_add` / `math.checked_div`（整数），浮点 NaN 检测用方法 `x.is_nan()`（STDLIB §6.1）。
 
 ---
 
@@ -97,7 +97,7 @@ fn main() -> void {
 
     // let n: int = 99
     // celebrate(n, age)      // ❌ n 是 int 变量，不能隐式转 UserId（名义不同）；字面量 celebrate(99, age) 则合法（字面量强制，SPEC §7.3 / SPEC §21 #1）
-    // let bad: Age = -5      // ❌ 编译期约束违约 → 编译错（SPEC §7.4 / §29 #2）：Age 须 0..150；运行期经 Age(n) 构造违约才 panic ConstraintViolation（SPEC §29 #9）
+    // let bad: Age = -5      // ❌ 编译期约束违约 → 编译错（SPEC §7.4 / SPEC §29 #2）：Age 须 0..150；运行期经 Age(n) 构造违约才 panic ConstraintViolation（SPEC §29 #9）
     //
     // 运行期构造（SPEC §29 #2）：字面量之外，运行期 int 须经构造算符 T(expr) 变约束类型
     // let n = compute_age()
@@ -199,7 +199,7 @@ fn load_both() -> Result<string, FileError> {
 
 ```ail
 fn find_user(id: UserId) -> Optional<User> {
-    if id == 1 {
+    if id == 1 {   // UserId 的 == 需 Eq（运算 trait 不自动继承，v0.3 显式 impl，SPEC §7.3）；示例假定已支持
         return Some(User { id: 1, username: "Tom" })
     }
     return None
@@ -315,7 +315,7 @@ fn process_file() -> void {
     let file = File.open("a.txt")            // owner = process_file 作用域
     print_lines(borrow file)                  // 借用：调用后 file 仍可用
     print(file.size())
-}                                             // ← file 在此自动 release（确定性，无 GC）
+}                                             // ← file 在此自动 release（确定性，无追踪 GC）
 
 fn bad() -> void {
     let f = File.open("b.txt")
@@ -375,7 +375,7 @@ fn main() -> void {
 }
 ```
 
-> 编译器见 body **无共享可变** → 允许并行（`heavy` 纯；CONCURRENCY §8、CONCURRENCY §14）。
+> 编译器见 body **纯 + 无共享可变**（`heavy` 为 `pure fn`；SPEC §24 #9：body 须 `pure` 或仅 `io.read`、无共享可变）→ 允许并行（CONCURRENCY §8、CONCURRENCY §14）。
 
 ---
 

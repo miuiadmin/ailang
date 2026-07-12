@@ -100,7 +100,7 @@ http/
   "functions": [
     {
       "identity": { "name": "get", "description": "send HTTP GET request" },
-      "input": [ { "name": "url", "type": "URL", "mode": "borrow" } ],
+      "input": [ { "name": "url", "type": "URL", "meaning": "uniform resource locator", "mode": "borrow" } ],
       "output": { "type": "Result<Response, NetworkError>", "meaning": null },
       "effects": [ "network" ],
       "errors": [ "Timeout", "ConnectionFailed" ],

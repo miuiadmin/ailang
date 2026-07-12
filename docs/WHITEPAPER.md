@@ -119,7 +119,7 @@ fn main() -> void {
   "types": [
     { "name": "UserId", "kind": "semantic", "base": "int", "meaning": "unique identifier of a user", "span": { "file": "src/main.ail", "line_start": 4, "col_start": 1, "line_end": 4, "col_end": 18 } },
     { "name": "User", "kind": "struct", "fields": [
-        { "name": "id", "type": "UserId" },
+        { "name": "id", "type": "UserId", "meaning": "unique identifier of a user" },
         { "name": "name", "type": "string" }
     ], "span": { "file": "src/main.ail", "line_start": 8, "col_start": 1, "line_end": 11, "col_end": 1 } }
   ],
@@ -143,14 +143,14 @@ fn main() -> void {
 | `input[]` | 见下 | | 入参 |
 | `output` | `{type, meaning?}` | | 返回类型 + 含义 |
 | `effects[]` | `string[]` | | effect 词表（§6、SPEC §25 #6） |
-| `errors[]` | `string[]` \| `{name, payload?}[]` | | **单一真源**：≡ 签名 `E`（error 枚举）变体集；裸变体为 `string`，带 payload 变体为 `{name, payload:[{name,type}]}`。非 `Result` 返回 → `[]` |
+| `errors[]` | `string[]` \| `{name, payload?}[]` | | **单一真源**：≡ 签名 `E`（error 枚举）变体集；裸变体为 `string`，带 payload 变体为 `{name, payload:[{name,type}]}`。非 `Result` 返回 → `[]`；`E` 为 `std.core.Error`（opt-in 通用型，非命名枚举）→ `["Error"]`（类型名占位，变体不展开，SPEC §9） |
 | `ownership` | `{output}` | | 见枚举（**不含** `inputs`——mode 已在 input[]） |
 | `is_pure` | `bool` | ✓ | 无任何 effect（含 `alloc`）+ 不改入参；与 `errors[]` 正交 |
 | `is_async` | `bool` | ✓ | `async fn` |
 
 **`input` 条目**：`{name, type, meaning?, mode}`。
 
-**`type` 条目**：`{name, kind, span, …}`；`kind` 决定附加字段——`semantic`(+base/meaning/constraint?)、`struct`(+fields[])、`enum`(+variants[])、`interface`(+sigs[])、`trait`(+sigs[])、`error`(+variants[])、`alias`(+base)。`type X = Y` 无 `meaning` → `alias`（透明同型）；附 `meaning` → `semantic`（名义，`constraint` 为可选字段，谓词如 `["value >= 0", "value <= 150"]`）。input / output / field 的 meaning 按名义类型附着传递；bare 基础类型 / alias = null。（类型层语义详见 SPEC §7、SPEC §29。）
+**`type` 条目**：`{name, kind, span, …}`；`kind` 决定附加字段——`semantic`(+base/meaning/constraint?)、`struct`(+fields[])、`enum`(+variants[])、`interface`(+sigs[])、`trait`(+sigs[])、`error`(+variants[])、`alias`(+base)。`type X = Y` 无 `meaning`/`constraint` → `alias`（透明同型）；附 `meaning` 或 `constraint` → `semantic`（名义；`constraint` 为可选字段，谓词如 `["value >= 0", "value <= 150"]`）。input / output / field 的 meaning 按名义类型附着传递；bare 基础类型 / alias = null。（类型层语义详见 SPEC §7、SPEC §29。）
 
 **`error` 条目**：`{name, variants[], span}`；`variants[]` 项可为裸名或 `{name, payload:[{name,type}]}`（带数据变体，SPEC §26 #7）。
 
@@ -158,7 +158,7 @@ fn main() -> void {
 
 **枚举汇总**：
 - `mode`（input）：`move` / `borrow` / `borrow_mut` / `copy`（SPEC §25 #2 / #3）。
-- `ownership.output`：`new`（新建）/ `borrowed`（借用返回）/ `move`（转移入参）。
+- `ownership.output`：`new`（新建）/ `move`（转移入参）。（无 `borrowed`——SPEC §10.3 禁 borrow 返回，函数输出恒为新建或转移入参；SPEC §25 #2）
 - `kind`（type）：`semantic` / `struct` / `enum` / `interface` / `trait` / `error` / `alias`。
 
 **这一份 `.ailmeta` 是 AILang 存在的全部理由。** AI 不需要「阅读源码并猜测」——它读到的是一份结构化、可验证、由编译器背书的程序语义说明书。
@@ -169,7 +169,7 @@ fn main() -> void {
 
 - **程序结构**：`package <路径>` 开头（点分模块路径，如 `package app` / `package std.http`），可跟 `import` / `from ... import` / `import ... as`（**全路径**，如 `import std.http`；SPEC §28）。
 - **变量**：`let`（不可变）/ `var`（可变）/ `const`（编译期常量）。
-- **函数**：`fn name(params) -> Type { }`；`pure` / `async` 为前缀修饰；`where` / `effects` / `requires` / `ensures` 契约块置于签名与函数体之间。
+- **函数**：`fn name(params) -> Type { }`；`pure` / `async` 为前缀修饰；`where`（泛型 bound，编译期）与 `effects` / `requires` / `ensures`（契约块）置于签名与函数体之间。
 - **控制流**：`if` / `else` / `match` / `for` / `while` / `loop` / `break` / `continue`，统一 `{ }`。
 - **关键字**：共 56 个，十一类（完整表见 [SPEC](./SPEC.md) §2）。
 
@@ -181,7 +181,7 @@ fn main() -> void {
 
 - **基础类型**：`int`（默认 i64）/ `uint`（默认 u64）/ `float`（默认 f64）/ `bool` / `string` / `byte` / `void`；需要时显式 `int8…int64` / `uint8…uint64` / `float32` / `float64`。
 - **类型推断**：局部可推断；**函数参数与返回必须显式**（公共边界）。
-- **Semantic Type（可带 constraint）**：`type UserId = int` + `meaning UserId: "..."` ——**名义新类型**，零成本（裸 `type X = Y` 无 `meaning` 为透明别名 `alias`，SPEC §29 #1）。附 `constraint` 即 Constraint Type（特化，非独立 kind，SPEC §29 #6）：`type Age = int` + `constraint Age: { value >= 0; value <= 150 }` ——字面量编译期检查 + 运行期断言（违约 panic `ConstraintViolation`）。
+- **Semantic Type（可带 constraint）**：`type UserId = int` + `meaning UserId: "..."` ——**名义新类型**，零成本（裸 `type X = Y` 无 `meaning`/`constraint` 为透明别名 `alias`，SPEC §29 #1）。附 `constraint` 即 Constraint Type（特化，非独立 kind，SPEC §29 #6）：`type Age = int` + `constraint Age: { value >= 0; value <= 150 }` ——字面量编译期检查 + 运行期断言（违约 panic `ConstraintViolation`）。
 - **Optional\<T>**：`Some` / `None`，**禁止 null**。
 - **Result\<T, E>**：错误安全核心。
 - **复合类型**：`List` / `Array` / `Map` / `Set` / `Tuple`。
