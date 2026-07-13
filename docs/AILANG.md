@@ -672,7 +672,7 @@ match find_user(1) {            // 带 payload：用  绑定名 ->  取关联值
 
 match expr {                    // 多 payload：逗号分隔绑定
     Expr.Num: { n -> print(n) }
-    Expr.Add: { l, r -> print(l, r) }
+    Expr.Add: { l, r -> print(l); print(r) }
     Expr.Leaf: { print("leaf") }
 }
 
