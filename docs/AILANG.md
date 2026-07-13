@@ -1481,10 +1481,10 @@ contract    := "effects" "{" effect* "}"
             |  "ensures" "{" expr* "}"         // 运行期后置断言
 params      := param ("," param)*
 mode        := "borrow" | "borrow_mut" | "move" | "copy"     // 所有权 mode（§9 内存关键字、§24 ParamMode；省略默认 move）
-param       := doc? ident ":" (mode)? type | (mode)? "self"  // 普通形参 name:[mode]Type（如 user: borrow User）；接收者 [mode]self（borrow self 默认 / borrow_mut self / self，§15.5）
+param       := ident ":" (mode)? type | (mode)? "self"  // 普通形参 name:[mode]Type（如 user: borrow User）；接收者 [mode]self（borrow self 默认 / borrow_mut self / self，§15.5）；doc 经 trivia 附着（§70/§71）
 layout      := "layout" "(" ident ")"                  // 如 layout(C)
 struct      := layout? "struct" ident generic? ("implements" type_list)? "{" (field | fn)* "}"
-field       := doc? visibility? ident ":" type
+field       := visibility? ident ":" type  // doc 经 trivia 附着（§70/§71）
 enum        := "enum" ident "{" variant* "}"
 interface   := "interface" ident generic? "{" fn_sig* "}"
 trait       := "trait" ident generic? "{" (fn_sig | fn)* "}"
@@ -2866,10 +2866,10 @@ contract    := "effects" "{" effect* "}"
             |  "ensures" "{" expr* "}"           // 运行期后置断言
 params      := param ("," param)*
 mode        := "borrow" | "borrow_mut" | "move" | "copy"      // 所有权 mode（§9、§24 ParamMode；省略默认 move）
-param       := doc? ident ":" (mode)? type | (mode)? "self"   // 普通形参 name:[mode]Type；接收者 [mode]self（§15.5）
+param       := ident ":" (mode)? type | (mode)? "self"   // 普通形参 name:[mode]Type；接收者 [mode]self（§15.5）；doc 经 trivia 附着（§70/§71）
 layout      := "layout" "(" ident ")"            // 如 layout(C)；对接 FFI
 struct      := layout? "struct" ident generic? ("implements" type_list)? "{" (field | fn)* "}"  // 内联方法（§15.5）
-field       := doc? visibility? ident ":" type
+field       := visibility? ident ":" type  // doc 经 trivia 附着（§70/§71）
 enum        := "enum" ident "{" variant* "}"
 interface   := "interface" ident generic? "{" fn_sig* "}"   // 方法禁泛型（§86 #1）
 trait       := "trait" ident generic? "{" (fn_sig | fn)* "}"   // 可带默认方法（§86 #6）
