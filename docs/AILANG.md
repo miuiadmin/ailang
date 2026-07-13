@@ -1736,10 +1736,10 @@ fn read_config() -> Result<Config, ConfigError> { ... }
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
-| `unwrap` | `(self) -> T` | 取 `Ok` 值；`Err` 则 **panic**（§89 #3） |
+| `unwrap` | `(self) -> T` | 取 `Ok` 值；错误侧则 **panic**（§89 #3） |
 | `unwrap_or` | `(self, default: T) -> T` | 取值或默认 |
 | `is_ok` | `(borrow self) -> bool` | 是否 `Ok` |
-| `is_err` | `(borrow self) -> bool` | 是否 `Err` |
+| `is_err` | `(borrow self) -> bool` | 是否错误侧 |
 
 ### error —— 统一错误系统
 命名错误枚举经 `error` 声明（规范示例见 `std.net.NetworkError`，§33.1；`std.fs.FileError` §37、`std.ai.AIError` §40 同形）。
@@ -3480,7 +3480,7 @@ v0.2.1 SPEC 收敛后复核各模块先前的「待对齐」，结论：
 | `string` / 集合内存模型（COW） | §83 #7（v0.2.1 锁定 COW 值语义，不引入最小 GC，无追踪 GC 详见 §18.4；§85 #2） |
 | 关键字精确集合（56） | §83 #5 |
 | Drop 语义 | §18.7 / §90 #5 |
-| `unsafe` 边界精确清单（裸指针解引用 / FFI / 共享可变） | §90 #4（精确清单锁定 + panic 跨 FFI → abort + 无 `static mut` / 无 union） |
+| `unsafe` 边界精确清单（裸指针解引用 / FFI / 调用 `unsafe` 函数） | §90 #4（精确清单锁定 + panic 跨 FFI → abort + 无 `static mut` / 无 union） |
 | Actor 与 `interface`/`trait`/`struct`/`agent` 的精确边界 | §83 #6（顶级声明边界锁定：actor 为独立构造，非 struct 变体） |
 | `server`/`route` 语言级 vs 库级（与 `std.http` 关系） | §83 #6（语言级构造，解糖为 `std.http` + Task 调度） |
 | Channel 有界/无界、close、多生产者多消费者语义 | §87 #2（MPMC + 容量 + close 状态机） |
