@@ -1543,7 +1543,7 @@ expr_list   := expr ("," expr)*                      // agent tools 列表等
 match       := "match" expr "{" arm* "}"
 try_catch   := "try" block "catch" "{" arm* "}"    // 局部捕获（§89 #1）；"try" 后跟 "{" → 捕获形，否则为 unary 传播算符
 arm         := pattern ":" arm_body
-arm_body    := "{" bind ("," bind)* "->" block | block
+arm_body    := "{" bind ("," bind)* "->" stmt+ "}" | block     // { 绑定 -> stmt+ } 单括号内联（§16 match / §21.7 on handler）；无绑定形 = block
 pattern     := (ident ".")? ident | "_"
 bind        := ident
 select      := "select" "{" (sel_arm | sel_special)* "}"      // §87 #10
