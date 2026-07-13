@@ -2,7 +2,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![Status: Pre-Alpha](https://img.shields.io/badge/status-Pre--Alpha-orange.svg)](#status)
-[![Spec: v0.2.1](https://img.shields.io/badge/spec-v0.2.1-frozen-informational.svg)](./docs/SPEC.md)
+[![Spec: v0.2.1](https://img.shields.io/badge/spec-v0.2.1-frozen-informational.svg)](./docs/AILANG.md)
 [![Discussions](https://img.shields.io/github/discussions/miuiadmin/ailang)](https://github.com/miuiadmin/ailang/discussions)
 
 > **An AI-native systems programming language** — built for AI to understand, generate, and maintain.
@@ -86,11 +86,16 @@ In design phase. The spec is frozen (**v0.2.1**), but there is **no reference co
 
 ## Documentation
 
-All design docs are in [`docs/`](./docs):
+The complete design lives in a single document — [`docs/AILANG.md`](./docs/AILANG.md) (v0.2.1, frozen). It's organized in six parts:
 
-📜 [WHITEPAPER](./docs/WHITEPAPER.md) · 💡 [PHILOSOPHY](./docs/PHILOSOPHY.md) · 📐 [SPEC](./docs/SPEC.md) · 🧪 [EXAMPLES](./docs/EXAMPLES.md) · ⚙️ [DESIGN](./docs/DESIGN.md) · 📦 [STDLIB](./docs/STDLIB.md) · 🧠 [MEMORY](./docs/MEMORY.md) · 🔀 [CONCURRENCY](./docs/CONCURRENCY.md)
+- [Part 0 · Motivation & Philosophy](./docs/AILANG.md#part-0)
+- [Part I · Language Specification](./docs/AILANG.md#part-i) — the authoritative spec (incl. ownership & concurrency deep-dives)
+- [Part II · Standard Library & Packages](./docs/AILANG.md#part-ii)
+- [Part III · Tutorial (runnable examples)](./docs/AILANG.md#part-iii)
+- [Part IV · Compiler Implementation Design](./docs/AILANG.md#part-iv)
+- [Part V · Decision Records](./docs/AILANG.md#part-v)
 
-> First time here? Start with the [WHITEPAPER](./docs/WHITEPAPER.md).
+> First time here? Start with [Part 0](./docs/AILANG.md#part-0), then read [Part I](./docs/AILANG.md#part-i).
 
 ---
 
