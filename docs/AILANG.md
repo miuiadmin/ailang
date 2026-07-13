@@ -98,7 +98,7 @@ AI 理解 / 生成 / 维护
 
 ### 3.1 Rust 级安全
 
-目标：内存安全、无空指针、无数据竞争、编译期检查、无 GC 强依赖。
+目标：内存安全、无空指针、无数据竞争、编译期检查、无追踪 GC。
 
 采用：Ownership、Borrow Analysis、Static Type System。
 
@@ -891,10 +891,10 @@ lock(data) {           // 临界区
 所有者离开作用域时自动 `release`（消费 owner，类 Rust `Drop`，§85 #8）。
 
 ```ail
-fn read() {
-    let file = File.open("a.txt")
-    read(file)
-}   // ← 编译器在此自动插入 file.release()
+fn process() {
+    let file = File.open("a.txt")     // File：Move 资源（§18.4）
+    print_lines(borrow file)          // 显式 borrow，file 未 move（§84 #13）
+}   // ← 编译器在此自动插入 file.release()（确定性释放，§85 #8）
 ```
 
 无需手动 `close`、无延迟。这是确定性析构安全管理的根因。
@@ -1553,7 +1553,7 @@ sel_arm     := ("await")? postfix "(" args? ")" arm_body        // receive()/sen
 sel_special := "default" arm_body | "timeout" "(" expr ")" arm_body   // 非阻塞 / 超时（上下文关键字）
 ```
 
-> 文法为骨架；`async/await`、泛型 `where`、`!` 投递糖（send，§87 #5）、`spawn actor` 等细节见对应小节与各领域文档。
+> 文法为骨架；`async/await`、泛型 `where`、`!` 投递糖（send，§87 #5）、`spawn actor` 等细节见对应小节。
 
 ---
 
