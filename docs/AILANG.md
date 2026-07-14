@@ -390,7 +390,7 @@ Go 风格：换行分隔语句，分号可省。`let x = 1` 与 `let x = 1;` 等
 
 基础 56 个（§9 表）。`true` / `false`（布尔字面量）、`void`（unit 类型）、`never`（bottom 类型，§89 #4）为**保留字面量/类型词，不计入 56**（§83 #5 已锁定）。`borrow_mut` 计为单关键字。`channel` 计入 56 为**保留关键字**：v0.2 通道经 `Channel<T>` 类型构造（§21.4），关键字预留以备未来声明式语法，当前无独立产生式（§27）。
 
-**上下文关键字**（仅特定语法位置保留、词法层产出 `Ident`、不入 56）：`where`（泛型 bound 子句，§15.10）、`constraint`（§15.4 声明引导词；与硬关键字 `meaning` 分类不同，为已知非对称）、`on`/`reply`/`detached`（§21 / §87）、`default`/`timeout`（select）、`reduce`（§87 #9）。另：`lock`/`yield`/`spawn_blocking` 为 `std.sync`/`std.async` 内建函数/控制构造（**非关键字**，§21 / §87 #7）。
+**上下文关键字**（仅特定语法位置保留、词法层产出 `Ident`、不入 56）：`where`（泛型 bound 子句，§15.10）、`constraint`（§15.4 声明引导词；与硬关键字 `meaning` 分类不同，为已知非对称）、`on`/`reply`/`detached`（§21 / §87）、`default`/`timeout`（select）、`reduce`（§87 #9）、`goal`/`tools`（agent 块字段标签，§27）、`state`（actor 块状态段，§27）。另：`lock`/`yield`/`spawn_blocking` 为 `std.sync`/`std.async` 内建函数/控制构造（**非关键字**，§21 / §87 #7）。
 
 ---
 
