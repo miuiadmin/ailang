@@ -3013,7 +3013,7 @@ Uninitialized → Alive → Moved
               Borrowed / Frozen（被借用期间）
 ```
 - `process(file)` → move → `print(file)` 报 **Use after move**。
-- 值语义三分类：位复制 Copy（`int/uint/float/bool/byte` + 全 Copy struct）、COW 值类型（`string/List/Map/Set`，赋值共享·修改克隆）、Move（`File/Socket` 等资源，需显式 `borrow`/`borrow_mut`，不可 `copy`）。
+- 值语义三分类：位复制 Copy（`int/uint/float/bool/byte` + 全 Copy/COW 字段 struct）、COW 值类型（`string/List/Map/Set`，赋值共享·修改克隆）、Move（`File/Socket` 等资源，需显式 `borrow`/`borrow_mut`，不可 `copy`）。
 
 ### 74.2 Borrow Graph（无显式生命周期）
 内部建立 Borrow Graph，记录每次借用的 owner / 借用方 / 生命周期（寿命 ⊆ 当前栈帧，由 Lifetime Analyzer 推导）。
