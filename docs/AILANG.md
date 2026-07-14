@@ -1989,7 +1989,7 @@ tool Search {
 ```ail
 test "login success" {
     let result = login()
-    assert result.ok
+    assert result.is_ok()
 }
 ```
 
