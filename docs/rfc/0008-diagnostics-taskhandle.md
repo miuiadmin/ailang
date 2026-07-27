@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4，pass-4 报 4 confirmed [0H/4M/0L] 已全部修正、待 pass-5 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4/pass-5，pass-5 报 7 confirmed [0H/4M/3L] 已全部修正、待 pass-6 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结规范**：§1–§94 语义决断、56 关键字、110 决议均不变；TaskHandle 新查询方法 `is_failed`/`status`/`failure` 为 `std.async` 方法非关键字——同 `cancelled`/`yield` 先例；`AILxxxx` 错误码为登记表标识符非关键字；零新关键字、零新文法产生式）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-3**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第四优先级；[`deep-review-2026-07.md`](../research/deep-review-2026-07.md) 可观测维度 4.0「运行期近零」+ P1「Task 失败语义闭环（RFC 0003 已依赖）」；[RFC 0003](./0003-pbt-fuzzer.md) PBT 每 trial 独立 Task 捕获 panic 的契约前置）|
@@ -57,10 +57,10 @@ pub enum Severity { Error, Warning, Note, Hint, Help }
 //      任一 severity（含 Help）均可携带 suggestion，Help 不蕴含 suggestion、suggestion 有无不取决于 severity
 
 pub enum DiagnosticCategory {
-    Lex, Parse, Names, Type, Borrow, Effect, Visibility, Contract, Concurrent, Runtime, Ffi, Codegen
+    Lex, Parse, Names, Type, Borrow, Effect, Visibility, Contract, Concurrent, Runtime, Ffi, Codegen, Internal
 }
-//   Runtime = 运行期 panic（§5 AIL7xxx）；Ffi = FFI / ABI / 布局违规（§5 AIL8xxx）；Codegen = lowering / 代码生成失败
-//   **无 `Other` 兜底变体**——每条诊断**必须**归入 12 类之一（若诊断跨类，归属主类别）；这维持 `category`↔AILxxxx 段的双射、闭合 §5「每个诊断携带稳定 DiagnosticCode」契约（AI 按 slug 匹配）。若实现遇到确无法归类的新型诊断，属诊断分类法缺陷、应扩类别而非兜底（AIL0xxx 为 ICE「不该发生」、与 Other「真实但跨类」语义不同、不可复用）。
+//   Runtime = 运行期 panic（§5 AIL7xxx）；Ffi = FFI / ABI / 布局违规（§5 AIL8xxx）；Codegen = lowering / 代码生成失败；Internal = 编译器内部错误 ICE（§5 AIL0xxx）——ICE 是编译器自身的元失败、非任一 pass 的「跨类」诊断，故独立成类（`Internal`↔AIL0xxx）
+//   **无 `Other` 兜底变体**——每条诊断**必须**归入 13 类之一（若诊断跨类，归属主类别）；这维持 `category`→AILxxxx 段的**满射**（每段至少 1 个 category 归宿、覆盖 AIL0xxx–AIL8xxx 全 9 段；**非双射**——category→段为多对一，如 Lex/Parse→AIL1xxx、Effect/Contract→AIL5xxx、Ffi/Codegen→AIL8xxx）、闭合 §5「每个诊断携带稳定 DiagnosticCode」契约（AI 按 slug 匹配）。若实现遇到确无法归类的新型诊断，属诊断分类法缺陷、应扩类别而非兜底。
 
 pub struct RelatedSpan { pub label: String, pub span: Optional<Span> }      // 「定义于此」「前一次借用于此」；Optional span 承载 span-less 子注记（如「此为已知问题」「以 debug 模式编译」）——恢复冻结 §69.3 `notes: Vec<(String, Option<Span>)>` 的 span-less 子注记能力（`related` 取代 `notes`、不应丢失该能力）；`label` 保持必需
 
@@ -101,7 +101,7 @@ pub struct Diagnostic {
 | `diagnostics_schema_version` | string（semver） | 是 | 本行 schema 版本（顶层，与 `Diagnostic` 同对象） |
 | `severity` | enum string：`"error"\|"warning"\|"note"\|"hint"\|"help"` | 是 | §4.1 Severity 5 级的 JSON 串形（小写） |
 | `code` | object `{number, slug}` | 是 | `{number:"AILxxxx", slug:"kebab-case"}`；slug 跨版本稳定（见下） |
-| `category` | enum string：`"lex"\|"parse"\|"names"\|"type"\|"borrow"\|"effect"\|"visibility"\|"contract"\|"concurrent"\|"runtime"\|"ffi"\|"codegen"` | 是 | §4.1 DiagnosticCategory 的 JSON 串形（小写）；`"runtime"` 对应 AIL7xxx 运行期 panic（无 `"other"`——对齐 §4.1 无兜底变体，维持 category↔AILxxxx 段双射） |
+| `category` | enum string：`"lex"\|"parse"\|"names"\|"type"\|"borrow"\|"effect"\|"visibility"\|"contract"\|"concurrent"\|"runtime"\|"ffi"\|"codegen"\|"internal"` | 是 | §4.1 DiagnosticCategory 的 JSON 串形（小写）；`"runtime"` 对应 AIL7xxx 运行期 panic、`"internal"` 对应 AIL0xxx ICE（无 `"other"`——对齐 §4.1 无兜底变体，维持 category→AILxxxx 段满射、覆盖 AIL0xxx–AIL8xxx 全 9 段） |
 | `message` | string | 是 | 人读文本（可跨版本演进，非契约） |
 | `span` | `Span`（见下） | 是 | 主定位 |
 | `related` | array of `{label, span?}` | 否 | 结构化多定位；空时可省；`span` 可选（对齐 §4.1 `RelatedSpan.span: Optional<Span>`，承载 span-less 子注记——恢复冻结 §69.3 `notes: Vec<(String, Option<Span>)>` 能力） |
@@ -152,6 +152,8 @@ pub struct Diagnostic {
 | `AIL6xxx` | 并发 / Send-Sync / Task | `AIL6001 not-send`、`AIL6002 not-sync`、`AIL6003 spawn-bound-check` |
 | `AIL7xxx` | **运行期 panic** | `AIL7001 arithmetic-overflow`、`AIL7002 divide-by-zero`、`AIL7003 index-out-of-bounds`、`AIL7004 constraint-violation-runtime`（约束 `T(expr)` 运行期断言违约）、`AIL7005 unwrap-on-none`（`Option::unwrap` on `None`）、`AIL7006 unwrap-on-err`（`Result::unwrap` on `Err`）、`AIL7007 assertion-failed`（`assert` / 断言宏）、`AIL7008 contract-requires-violation-runtime`（§20 `requires` 运行期违约）、`AIL7009 contract-ensures-violation-runtime`（§20 `ensures` 运行期违约）、`AIL7010 explicit-panic`（显式 `std.core.panic(msg)`，§17） |
 | `AIL8xxx` | **FFI / ABI / 布局 / codegen** | `AIL8001 ffi-unsafe-type`（非 FFI-safe 类型入 `extern` 签名，[RFC 0009](./0009-ffi-abi-supply-chain.md) §4）、`AIL8002 abi-mismatch`（调用约定越封闭集合，0009 §5）、`AIL8003 layout-mismatch`（`layout` 组合非法，0009 §7.2）、`AIL8004 ffi-marshalling`（封送不可表示）、`AIL8005 codegen-lowering`（lowering / 代码生成失败） |
+
+> **`AIL0xxx`（ICE）的 `DiagnosticCode` 归属**（闭合 §4.1 `Internal`↔AIL0xxx 与 §5.2 码条目的衔接）：`AIL0001 internal-compiler-error` 的 `DiagnosticCode` 条目 `category = Internal`（§4.1 第 13 变体）、`default_severity = Error`——ICE 是编译器自身的元失败（如 invariant 违背、unreachable 命中、跨 pass 协议破裂）、独立成类，归 `Internal`（非任一编译期 pass 的「跨类」诊断、不借 `Other` 兜底）。ICE 经 §69.3 `Diagnostic` 结构吐出（一切走 Diagnostic、§69.3 + RFC 0005 §3 #4 诊断 MUST），其 `code.category = "internal"`、`slug = internal-compiler-error` 跨版本稳定——闭合 §4.1「每诊断归入 13 类」对 ICE 段（AIL0xxx）的覆盖（满射不漏段）。
 
 **段边界不变量**（消除 5xxx 与 7xxx 的口径重叠、闭合 codegen/FFI 无家可归）：
 - **5xxx = 编译期**契约 / 约束 / 效果诊断（在静态分析 pass 拒收）；**7xxx = 运行期 panic**（程序运行时触发）。`requires` / `ensures`（§20）为**运行期**前后置断言——其运行期违约落 **AIL7008 / 7009**（7xxx），**不**入 5xxx；5xxx 的 `AIL5001`（`requires` 静态可证伪编译期拒收）为**预留码**——激活须待 [RFC 0002](./0002-contracts.md) Tier 2 decidable refinement 落地；**v0.2 `requires` 为纯运行期断言**（§20 / §83 #3 显式排除自动证明），运行期违约一律落 AIL7008，故 AIL5001 在 Tier 2 落地前不触发（占位登记、不废弃——为 Tier 2 预留稳定 slug）。
@@ -234,6 +236,13 @@ struct FileSpan {
     line: uint32,                // 行号（1-based）
     col: uint32,                 // 列号（1-based，按 Unicode 标量值计字符数，对齐 §4.2 JSON Span col 语义）
 }
+
+// DiagnosticCode（AILang 运行期可见投影，std.core、§34 落地）——TaskFailure.code 的字段类型
+//   §5.2 的 DiagnosticCode 为编译器内部 Rust 注册 struct（`&'static str`、含 default_severity/category 编译期元数据）；
+//   AILang 运行期层（TaskFailure.code、全局处理器 fn(TaskFailure)）只见其【稳定投影】{ number, slug }——
+//   default_severity/category 为编译期元数据、不进运行期值。这使全局处理器能在 AILang 层析取 .code.slug（AI 匹配键、
+//   与 §4.2 JSON 通道同源），闭合 TaskFailure 在 AILang 层的类型完备性（字段类型须在 AILang 类型集内定义、非直接引用编译器内部 Rust 类型）。
+struct DiagnosticCode { number: string, slug: string }   // 运行期投影；编译期完整注册 struct 见 §5.2
 ```
 
 > `TaskStatus` 枚举为 §21.8 生命周期的**忠实投影**（`Created`/`Running`/`Waiting` 为非终态、三个终态收尾）——与 §6.1 生命周期图一一对应，不留「blocked / unscheduled Task 无 `status()` 返回值」的缺口。`is_failed()` ≡ `status() == Failed` 的便捷查询。
@@ -249,11 +258,11 @@ struct FileSpan {
    - **父未取回**（未观测的 `Failed`）→ **panic 传播至父**（父以该 `TaskFailure` panic）——失败**绝不**静默丢失。
 2. **显式 `h.join()`（§37 line 3104 / §87 #4 TaskHandle 方法，与作用域末隐式 join 并存）**：`h.join()` **阻塞调用方至目标 Task 到达终态**（`Completed` / `Cancelled` / `Failed`），**不**传播 panic——panic 传播**仅**属上述 #1 隐式作用域末 join 对未 ack `Failed` 的行为；显式 `join` 仅同步等待、不引入二次 panic。失败观测统一经 join 后 `h.failure()` 取回 ack。**PBT runner 规范用法序列**（闭合 RFC 0003 §4.2 步 2-3「先 join 后观测」）：`h.join()`（阻塞至终态）→ `h.is_failed()`（查询 `Failed`）→ `h.failure()`（取回 `Some<TaskFailure>` = ack）→ 作用域末隐式 join 见已 ack → 不传播。此序列为 v0.3.0 规范定义的非传播失败观测路径（不依赖 §10 OQ #2 的 P1+ `try_join` 等高阶 API），使 PBT trial 捕获契约可落地。
 3. **`spawn detached`（显式分离，§87 #4）**：无作用域父可传播 → 失败仅经 `h.failure()` 显式查询可观测。**未被 ack 的 detached `Failed` 的投递时机与互斥**（闭合「detached 失败可能永不报告」+「ack 后又投递全局处理器」+「handle 早于失败 drop → 孤儿失败」+「immortal handle 永不投递」四重漏洞）：
-   - **ack 互斥**：`h.failure()` 返回 `Some` 即**唯一 ack 点**——已 ack 的失败**不得**再投递全局处理器（`failure()` 取回与全局处理器投递**互斥**，杜绝同一失败被双重处理）。
+   - **ack 互斥（仅 scoped 有效）**：`h.failure()` 返回 `Some` 即 ack 点——已 ack 的失败**不得**再投递全局处理器（`failure()` 取回与全局处理器投递**互斥**，杜绝同一失败被双重处理）。**scoped/detached 不对称**（消除「可经 `failure()` 抑制 detached 全局投递」误读）：对 **scoped** TaskHandle，作用域末隐式 join 之前存在 ack 窗口——scope 内调 `h.failure()` 取回 `Some` 即 ack、抑制向父传播；对 **detached** TaskHandle，Fail-time 投递锚定在「Task 转入 `Failed` 瞬间且当时未 ack」，而 `failure()` 仅在 `Failed` 后返回 `Some`（§6.2）——故 detached 的 Fail-time 必先于任何用户 `failure()` 调用而触发，**detached 的 `failure()` 永远是 informational 查询、非 ack**（detached 失败的 canonical 出口是全局处理器，不可经 `failure()` 抑制其投递）。ack 机制的实际作用域 = scoped only。
    - **handle drop 触发（失败已发生）**：detached `TaskHandle` 被 drop **且 Task 已处 `Failed`** 而 `failure()` 从未返回 `Some`（未 ack）时，runtime 在 drop 点把该 `TaskFailure` 投递全局处理器 `std.async.on_unhandled_task_failure: fn(TaskFailure) -> void`——失败**不**因 handle 被丢弃而丢失。
    - **Fail-time 投递（失败晚于 handle drop 或 immortal handle）**：runtime 同时持有 Task 注册表（知 Task 身份 / 当前态）与 handle 存活状态——当 detached Task **转入 `Failed` 的瞬间**，若其 handle 已 drop（孤儿：失败晚于 drop）**或** handle 虽存活但从未被外部 `failure()` 取回过（immortal handle 未观测），runtime **立即**把该 `TaskFailure` 投递全局处理器，**不**推迟到进程退出。此重锚消除「孤儿 detached + 永不退出进程」与「immortal handle 未 ack」两种静默丢失——失败的可观测出口锚定于 **Task Fail 事件本身**，不取决于调用方是否保留 handle、亦不取决于进程是否退出。投递后该 `TaskFailure` 标记为「已出口」；若 handle 后续 `failure()` 查询（ack 窗口已过），返回 `Some` 但**不再抑制**已发生的全局投递（双重处理风险由 ack 互斥条款闭合——一旦 Fail-time 已投递，后续 `failure()` 视为 informational 查询、非 ack）。
    - **进程退出 sweep（兜底，非唯一路径）**：上述 Fail-time 投递已使「永不退出进程」报告成为常态；进程退出 sweep 退为**最终兜底**（应对 runtime 实现的 Fail-time 投递遗漏或全局处理器自身失败等退化），sweep 遍历注册表中**所有未投递且未 ack 的 `Failed` Task**（含 handle 已 drop 的），逐一投递全局处理器。即：长驻服务进程不再依赖「进程退出」即可观测 detached 失败。
-   - 全局处理器默认实现：记录到诊断日志 + 继续；可由用户覆写为 panic / 上报 / 忽略。
+   - 全局处理器默认实现：记录到诊断日志 + 继续；可由用户覆写为 panic / 上报 / 忽略。**全局处理器 panic 的传播目标**（闭合与 §17 panic 展开目标穷举的张力）：全局处理器从 **runtime（executor）上下文**被调用——此时失败 Task 已 unwind 至 Task 边界、进入 `Failed`，handler 执行**不在任何 Task 体内**。§17（line 736 / §3119）把 panic 展开目标穷举为「最近的 Task 边界或 `extern` 帧」，runtime 上下文**既非 Task 边界亦非 `extern` 帧**——故全局处理器自身 panic **无 Task 边界可吸收** ⇒ **转进程 abort**（与 §17 `extern` 帧 panic→abort 同族：runtime 上下文无吸收边界 ⇒ abort，**非 UB**）；§17「v0.2 无 `catch_unwind`」亦禁止 runtime 经 catch_unwind 吞掉。即：用户把全局处理器覆写为 panic = 把「日志 + 继续」退化为「abort 整个进程」（退出进程是 sound 的、明确定义的，非未指定）。
 4. **actor 死信（§17 / §21.7）**：actor `on` handler panic → actor 进入死信态（既有），其失败信息同样以 `TaskFailure` 形式可经 `ActorHandle` 查询（与 TaskHandle 对称，细节留开放问题 #4）。
 
 **设计说明**：
@@ -322,7 +331,7 @@ struct FileSpan {
 | §6 RFC 0003 trial 捕获契约（显式 `h.join()` + `failure()` ack） | RFC 0003 §4.2 步 2-3「先 join 后观测」 + 「唯一可观测 unwind 边界」 | ✅ 定义该边界并提供非传播观测序列（§6.3 #2） |
 | §4.2 JSON `Span` 为**编译器诊断发射协议**专用形状（非声称全规范统一、非声称覆盖 PBT runner 输出） | §69.1 内部 `Span`（无 file）/ §24 `.ailmeta` span（字段名不同）/ RFC 0003 §9.6 PBT 反例 span（§24 形、归 RFC 0003 自身 schema） | ✅ 既有形状各自不变；本协议 JSON `Span` 含 `file`、`col` 定义为 Unicode 字符列；映射关系显式给出（不覆写 §69.1/§24 冻结形状、不引入实现定义行为）；**PBT 反例 span 形状不**经本协议——本 RFC 仅定义编译器诊断 JSON `Span` |
 | §4.1 DiagnosticCategory 含 `Runtime` 变体 | §5 AIL7xxx 运行期 panic 段 | ✅ 运行期 panic 有忠实 category（`category:"runtime"`）；Ffi/Codegen 对应 8xxx，三段各有归宿 |
-| §4.1 DiagnosticCategory 12 变体无 `Other` 兜底 | §5.1 8 段（AIL1xxx–AIL8xxx，category→段多对一） | ✅ `category`↔AILxxxx 段双射完备、无孤儿 category（无 Other 兜底；AIL0xxx ICE 与 Other「真实但跨类」语义不同、不可复用；新型诊断应扩类别而非兜底） |
+| §4.1 DiagnosticCategory 13 变体（含 `Internal`↔AIL0xxx ICE）无 `Other` 兜底 | §5.1 9 段（AIL0xxx–AIL8xxx，category→段多对一、`Internal`→AIL0xxx） | ✅ `category`→AILxxxx 段**满射**完备（覆盖 AIL0xxx–AIL8xxx 全 9 段、无孤儿 category、无死区；**非双射**——多对一如 Lex/Parse→AIL1xxx、Effect/Contract→AIL5xxx、Ffi/Codegen→AIL8xxx）；无 Other 兜底；新型诊断应扩类别而非兜底 |
 | 零新关键字 | §9（56）；`is_failed`/`status`/`failure` 为 std.async 方法（§87 先例）、`TaskStatus`/`TaskFailure`/`DiagnosticCode` 为类型词 | ✅ 已核查 |
 | 零新产生式 | §27 不动；§69.3 为编译器内部 struct、§21.8 为 std API + 生命周期图 | ✅ 已核查 |
 
@@ -337,7 +346,7 @@ struct FileSpan {
 | §5 AILxxxx 编号空间 + 登记 | §18.2 展开 + 附录 E（错误码登记表） | 规范性（编号空间 + 段边界不变量）+ 资料性（登记表种子码） |
 | §5 AIL7008/7009（§20 requires/ensures 运行期违约→panic） | §17 line 736「已知 panic 原因」清单补注（**声明非穷尽**）+ §20 line 990 / §27 line 1480 补违约→panic 条目 | 规范性（**gap-fill**：冻结 §20/§27 仅标「运行期断言」、未定失败行为；本 RFC 显式定义为 panic 并分配 AIL7008/7009——与 §92 #2 T(expr) 违约→panic ConstraintViolation 同族。合并后 §17 清单加「requires/ensures 运行期违约（AIL7008/7009）」一项或显式声明原清单非穷尽、由 §5 AIL7xxx 段闭合） |
 | §6 TaskHandle 错误态 | §21.8 生命周期图 + §21.9 并发错误表补注 + §87 #4 补注 | 规范性（Part I 并发） |
-| §6 `TaskStatus` / `TaskFailure` / `FileSpan` 类型 | §34 std.core（`FileSpan` / `TaskFailure`）/ §37 std.async（`TaskStatus`）类型表 | 规范性（std API；`FileSpan` 为运行期定位类型，**非** §69.1 编译器内部 Span——后者无 `file` 字段、ail 不可名） |
+| §6 `TaskStatus` / `TaskFailure` / `FileSpan` 类型 + `DiagnosticCode` 运行期投影 | §34 std.core（`FileSpan` / `TaskFailure` / `DiagnosticCode` 运行期投影）/ §37 std.async（`TaskStatus`）类型表 | 规范性（std API；`FileSpan` 为运行期定位类型、`DiagnosticCode` 运行期投影为 `{number, slug}`——二者**非** §69.1/§5.2 编译器内部类型（后者无 `file` 字段 / 为 Rust `&'static str` 注册项、ail 不可名）） |
 | §7 交叉更新 | RFC 0005 §3 / §1.5.4 + RFC 0003（`panic_symbol`→`slug`）/ 0004 引用更新 | 同步 |
 
 ---
@@ -386,6 +395,13 @@ pass-1 摘要：① 5xxx(编译期)/7xxx(运行期) 边界 + AIL7008/7009 + AIL7
 - **F2（M，diagnostic-protocol-soundness）**：§4.2 加「发射流」条款——JSON Lines 输出到 **stderr**（对齐 rustc/clang）、stdout 留给 `--print` 编译产物；human / json 共享同一 stderr 流——闭合 RFC 0005 §3 #4「诊断必须结构化」MUST 条款对发射流的 normative 歧义（CI / 编辑器集成无 stdout/stderr 歧义）。
 - **F3（M，ai-consumability-0008）**：§4.1 `DiagnosticCategory` 删 `Other` 兜底变体（12 变体留）；§4.2 JSON `category` 删 `"other"`——维持 `category`↔AILxxxx 段双射、闭合 §5「每诊断一稳定 code」契约（AIL0xxx ICE 与 Other「真实但跨类」语义不同、不可复用）；§4.1 补无兜底 rationale；§8 自洽表加 12 变体无 Other 核查行。
 - **F4（M，ai-consumability-0008）**：§6.2 新增 `FileSpan`（std.core 运行期定位类型 `{file, line, col}`、§34 落地）、`TaskFailure.span` 改 `Optional<FileSpan>`——非 §69.1 编译器内部 Span（无 file、ail 不可名）、非 §4.2 JSON 发射形状；闭合全局失败处理器（§6.3 #3）定位运行期 panic 源文件的可观测目标；§9 落地映射同步加 FileSpan。
+
+**pass-5 报 0H / 4M / 3L = 7 条 confirmed**（default-refute workflow，refuted 2、共 raw 9），已逐条修正、待 pass-6 复验：
+
+- **F1（聚簇·4 findings，覆盖 ailxxxx-code-space / diagnostic-protocol-soundness，根因 = AIL0xxx ICE 段无 DiagnosticCategory 归宿 + 「双射」措辞数学错误[实为多对一满射、非双射]）**：§4.1 `DiagnosticCategory` 加第 13 变体 `Internal`（JSON `"internal"`、↔AIL0xxx ICE）+ 把全文「`category`↔AILxxxx 段双射」措辞改为「`category`→AILxxxx 段**满射**（非双射、category→段多对一，如 Lex/Parse→AIL1xxx、Effect/Contract→AIL5xxx、Ffi/Codegen→AIL8xxx）」；§4.2 `category` JSON 枚举加 `"internal"` + 双射→满射；§5.1 加 `AIL0001 internal-compiler-error` 的 DiagnosticCode 归属注（`category=Internal`、`default_severity=Error`、经 §69.3 `Diagnostic` 吐出）；§8 自洽表「12 变体无 Other」行→「13 变体（含 Internal↔AIL0xxx）」+ 双射→满射 + 覆盖 AIL0xxx–AIL8xxx 全 9 段——闭合 ICE 段无 category 归宿 + 「双射」实为满射两个根因（原 pass-4 删 Other 兜底后 ICE 段（AIL0xxx）确无对应 category，本次补 Internal 变体补齐）。
+- **F2（M，taskhandle-failed-state-closure）**：§6.2 新增 `DiagnosticCode` AILang 运行期投影 `struct DiagnosticCode { number: string, slug: string }`（std.core、§34 落地）——区分 §5.2 编译器内部 Rust 注册 struct（`&'static str`、含 `default_severity`/`category` 编译期元数据）与 AILang 运行期层投影（仅 `{number, slug}`、编译期元数据不进运行期值），闭合 `TaskFailure.code: DiagnosticCode` 字段类型在 AILang 层的类型完备性（字段类型须在 AILang 类型集内定义、非直接引用编译器内部 Rust 类型）；§9 落地映射同步加 DiagnosticCode 投影。
+- **F3（M，join-failure-propagation）**：§6.3 #3 ack 互斥条款显式声明 **scoped/detached 不对称**——对 scoped，作用域末隐式 join 前有 ack 窗口（`failure()` 取回 `Some` 即 ack、抑制向父传播）；对 detached，Fail-time 投递锚定「转入 `Failed` 瞬间且当时未 ack」、必先于任何用户 `failure()` 调用触发，故 detached 的 `failure()` 永远是 informational 查询非 ack——消除「可经 `failure()` 抑制 detached 全局投递」误读、闭合 ack 机制作用域 = scoped only。
+- **F4（L，join-failure-propagation）**：§6.3 #3 全局处理器条款显式定义 **panic 的传播目标**——handler 从 runtime（executor）上下文被调用、不在任何 Task 体内；§17（line 736 / §3119）panic 展开目标穷举为「Task 边界或 `extern` 帧」、runtime 上下文二者皆非 ⇒ 无吸收边界 ⇒ 转进程 abort（与 `extern` 帧 panic→abort 同族、非 UB；§17 无 `catch_unwind` 禁吞）——闭合与 §17 panic 展开目标穷举的张力、全局处理器 panic→abort 为定义行为。
 
 > 本批是「可观测」主题，验证重心在**协议/契约的完备性与 soundness**（尤其 join 失败传播无静默吞、诊断 JSON schema 对 AI 稳定可消费），比 0006 的形式化、0007 的确定性更偏「契约正确性 + 不变量守住」。
 

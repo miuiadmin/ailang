@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3，post-pass-3 报 11 confirmed [0H/7M/4L] 已修正；pass-4 报 9 confirmed [0H/5M/4L] 并已全部修正、待 pass-5 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4/pass-5，pass-5 报 6 confirmed [0H/2M/4L] 并已全部修正、待 pass-6 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结语义决断**：§1–§94 语义、56 关键字、110 决议均不变。**两处显式扩展**：① §27 `layout` 产生式体扩展（`layout(C)` → 可组合 `layout(C + packed + align(N))`，类比 RFC 0006 对 `stmt`/`call` 的产生式体扩展、属 Authorized RFC 演进通道 RFC 0005 §9）；② `extern` 的 `ident` 收紧为封闭 ABI 集合（名字解析校验、文法不变）。`CStr`/`CString` 为 std.core 类型（落 §34，与 `panic`/`assert` 同模块、默认加载免 import）、`size_of`/`align_of`/`offset_of` 为编译期内征（同 `panic`/`assert` 先例）、`ail.lock` 为工具链文件——均非关键字、零新关键字）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-4**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第五/末优先级；§4 交叉印证 #6「FFI 封送/ABI 未规范，printf 示例自触 UB」+ #11「供应链 lockfile/签名/可复现构建缺失」；[`deep-review-2026-07.md`](../research/deep-review-2026-07.md) §6.1 包供应链 1.5 全规范最薄弱环 + §5.4 可观测维度 FFI UB 风险；[`spec-maturity-2026-07.md`](../research/spec-maturity-2026-07.md) §4.4 ABI/FFI 2.0 全规范最薄弱层 + §4.6 工具链 2.5）|
@@ -129,13 +129,22 @@ layout(transparent) struct CStr {
     ptr: raw_pointer<byte>          // 指向 NUL 终结的字节序列（Copy：裸指针为 Copy）
 }                                   // FFI-safe（transparent over FFI-safe raw_pointer<byte>，§4）；按值跨界 = const char*
 
-// string ↔ CStr 封送（std.core 方法）
-impl string {
-    fn to_cstr(borrow self) -> CString          // 分配 + 拷贝 + 加 NUL（含内嵌 NUL 则失败 → panic 或返回 Optional，见开放问题 #1）
-}
-struct CString { buf: raw_pointer<byte>, len: uint64 }   // 拥有版（drop 释放分配）；非 FFI-safe（内部表示，不经 extern）
-impl CString {
-    fn as_cstr(borrow self) -> CStr             // 借用：返回 CStr（Copy，按值；指向 CString 的 NUL 终结缓冲）
+// string ↔ CStr 封送——std.core 内建方法【签名】（§34 std.core API）：
+//   string.to_cstr(borrow self) -> CString     // 分配 + 拷贝 + 加 NUL（含内嵌 NUL 则失败 → panic 或返回 Optional，见开放问题 #1）
+//
+// ⚠️ 文法依赖声明（消除「§6.2 用独立 `impl` 块 = 引入新文法」与 §13「零新产生式」+ §27（无 impl 产生式）的矛盾）：
+//   `string` 是 #[lang] 内建类型（§86 #5 / §77 {i64 len, i8* ptr}、非 struct）——无法用冻结合规的内联
+//   `struct string { ...; fn to_cstr ... }` 形式附加方法。`string.to_cstr` 的方法定义语法依赖 §83 #2 既列的
+//   v0.3【内建类型 / 外部类型方法附加（独立 `impl` 块）】特性——该特性尚无 owner RFC、其产生式 / 关键字未由任何 RFC
+//   规范化（已 grep RFC 0005–0008，均未涉及）。本 RFC 仅规范【方法签名 + 语义】（to_cstr 的接收者模式、返回类型、
+//   NUL 处理语义），不规范其定义文法；落地前须先指定内建类型方法附加的文法通道（§83 #2 owner RFC）。
+//   故本 RFC 不出现字面 `impl string { ... }` 块（避免预设未规范的文法）——`string.to_cstr` 以签名声明呈现。
+
+// CString 为 struct——as_cstr 用冻结合规的内联方法（§27 struct 内联 fn、§27 line 1486、无需独立 impl 块）：
+struct CString {
+    buf: raw_pointer<byte>,         // 拥有版（drop 释放分配）；非 FFI-safe（内部表示，不经 extern）
+    len: uint64,
+    fn as_cstr(borrow self) -> CStr // 借用：返回 CStr（Copy，按值；指向 CString 的 NUL 终结缓冲）——内联方法、冻结合规（§27 line 1486）
 }
 ```
 
@@ -164,19 +173,19 @@ fn main() -> void {
 
 > 落地时 §25.3 / §61 的 printf 示例**替换**为上述 `puts` 形（对齐 §2 设计目标 3「printf **必须**（MUST）改为规范合规形」）——规范不再用自身示例演示自身 ABI 不成立。原 printf 形（`extern c { fn printf(text: string) }`：`string` 非 FFI-safe + 变参禁 §7.1）**移除**，不留「保留 printf 仅标注示意」的退路（该退路与 §2 MUST 目标矛盾）。
 
-### 6.4 `borrow` 跨 FFI 的一般规则
+### 6.4 `borrow` / `borrow_mut` 跨 FFI 的一般规则
 
-`extern` 参数的 `borrow`（借用）传递模式跨 FFI 的合法性**仅对 C 布局 struct（`layout(C)` / `layout(C + packed)` / `layout(C + align(N))`）成立**——`borrow T` 跨 FFI 封送为「指向 T 的指针」（C `T*`），前提是 T 为 C 布局 struct（C 兼容排列、指针可被 C 侧解引用；`packed` / `align(N)` 仅调整字段间填充与对齐、不破坏「C 聚合可借用」前提）。**其他 FFI-safe 类型一律按值跨界，`borrow` 参数 = `AIL8004 ffi-marshalling` 编译错误**：
+`extern` 参数的 `borrow`（只读借用）/ `borrow_mut`（可变借用）传递模式跨 FFI 的合法性**仅对 C 布局 struct（`layout(C)` / `layout(C + packed)` / `layout(C + align(N))`）成立**——`borrow T` / `borrow_mut T` 跨 FFI 封送为「指向 T 的指针」（C `T*`），前提是 T 为 C 布局 struct（C 兼容排列、指针可被 C 侧解引用；`packed` / `align(N)` 仅调整字段间填充与对齐、不破坏「C 聚合可借用」前提）。`borrow`（只读）允许 C 侧读不写；`borrow_mut`（可变）允许 C 侧经 `T*` 写入调用方缓冲（变异跨 FFI 的合法用例，如 `read` / `gethostname` / `snprintf` / `sqlite3_bind_text` 的输出指针参数）——借检查器在调用点保证调用方侧独占（`borrow_mut` 的排他性），变异由 `unsafe` 块（§25.1，`extern` 调用本身已在 `unsafe` 内）授权负责。**其他 FFI-safe 类型一律按值跨界，`borrow` / `borrow_mut` 参数 = `AIL8004 ffi-marshalling` 编译错误**：
 
-| 类型 | `borrow` 跨 FFI 判定 | 理由 |
+| 类型 | `borrow` / `borrow_mut` 跨 FFI 判定 | 理由 |
 |---|---|---|
-| C 布局 struct（`layout(C)` / `layout(C + packed)` / `layout(C + align(N))`） | **合法**（按值或 `borrow`） | C 兼容聚合，`borrow` = `T*`（C 侧可解引用） |
+| C 布局 struct（`layout(C)` / `layout(C + packed)` / `layout(C + align(N))`） | **合法**（按值 / `borrow` / `borrow_mut`） | C 兼容聚合，`borrow` / `borrow_mut` = `T*`（C 侧可读 / 读写；借检查器保证 `borrow_mut` 调用方侧独占） |
 | 原始整数 / 浮点 / `bool` / `byte` | **拒绝**（`AIL8004`） | C 无「引用整数」标准 ABI；欲传指针须显式 `raw_pointer<T>` |
 | `raw_pointer<T>` | **拒绝**（`AIL8004`） | 本身即指针，`borrow raw_pointer<T>` = 指向指针的指针（双重间接）；欲传 `T**` 用 `raw_pointer<raw_pointer<T>>` |
 | `Array<T,N>` | **拒绝**（`AIL8004`） | 裸 `borrow Array` 封送未规约（开放问题 #10）；仅作 `layout(C)` struct 字段时随 struct 借用 |
 | `layout(transparent) struct`（含 `CStr`） | **拒绝**（`AIL8004`） | `borrow` transparent = 指向单字段 struct 的指针：对**指针型字段** transparent newtype（如 `CStr` over `raw_pointer<byte>`）即双重间接、C 误读指针位模式 → UB（§6.2 CStr）；对非指针型字段 transparent newtype 为指针-当-值误用。笼统禁 `borrow` 为**保守安全**（一律按值、transparent 按值 = 字段 ABI） |
 
-**判定准则**：`borrow` 跨 FFI **当且仅当** T 为 C 布局 struct（`layout(C)` / `layout(C + packed)` / `layout(C + align(N))`，C 聚合的可借用性）；其余 FFI-safe 类型按值跨界。此准则闭合「transparent 指针型 newtype 的 `borrow` 双重间接 UB」一类漏洞（`CStr` 为典型例，§6.2）。
+**判定准则**：`borrow` / `borrow_mut` 跨 FFI **当且仅当** T 为 C 布局 struct（`layout(C)` / `layout(C + packed)` / `layout(C + align(N))`，C 聚合的可借用性）；其余 FFI-safe 类型按值跨界（`borrow_mut` 同 `borrow` 规则、仅语义为可变——§27 `mode := "borrow" | "borrow_mut" | "move" | "copy"`，`extern_fn` 复用标准 `params` 产生式故 `borrow_mut` 为合法语法、本规则为其跨 FFI 合法性）。此准则闭合「transparent 指针型 newtype 的 `borrow` / `borrow_mut` 双重间接 UB」一类漏洞（`CStr` 为典型例，§6.2）。
 
 ---
 
@@ -284,8 +293,8 @@ integrity = "sha256-..."
 - **MVS（最小版本选择）**：从 `ail.toml` 的 semver 约束，选满足全部约束的**最低**版本（对标 cargo），写入 `ail.lock`。
 - `ail update`：重解析、更新 `ail.lock` 到符合约束的最新（**显式**操作，非每次构建隐式漂移）。
 - **可复现构建**：`ail.lock` 在 → 同源码 + 同 lock → **字节一致的依赖闭包** → 闭合 deep-review §6.1「语言层钉死确定性、依赖层放任漂移」矛盾。
-- **`.ailmeta` 数组字段规范化义务**（闭合「set/Map 派生数组序不稳」漏洞、按数组性质分类）：`.ailmeta` 中**由编译器内部 set/Map 派生**的数组字段（如 `effects[]`，§24 schema_version 0.2.0——其元素集合由 effect 分析得出、迭代序受 RFC 0007 §6 Hash seed 影响）序列化时**必须**为**规范化有序**——按字段自然序（字符串字典序 / 数值序）**预先排序后**再写出，**不得**按内存中 set/Map 的迭代序（后者由 RFC 0007 §6 显式登记为**未指定**、且 Hash seed 随机化 → 直接序列化会破坏字节级复现）。**声明序数组**（`input[]` / `fields[]` / `variants[]` / `errors[]` / `sigs[]`，§24）**必须保留源码声明序**、**不得**排序——其序承载 positional 与 ABI 语义（形参位置即 positional 身份、`layout(C) struct` 字段序 = 内存布局序 = C ABI（§25.4 line 1413）、enum/error `variants[]` 判别式序承载语义），且本就以有序 AST 承载、非 Map 派生、不存在迭代序漂移。**`errors[]` 为签名派生**（§24 line 1343「单一真源：≡ 签名 E（error 枚举）变体集」、§17 line 713）——与类型层 `variants[]`（§24 line 1352 error 条目）**同源同序**（同一 E 的声明序），故同归声明序类、**不得**字母序规范化（字母序化 `errors[]` 会与同文件 `variants[]` 形成同源双序；「须按 Hash seed 排序」前提对签名派生数组不成立——Hash seed 仅影响 effect 分析的 set 迭代序、不影响签名 E 的声明序）。**schema 版本关系**：数组规范化有序义务**适用于全部数组字段、无论其所属 schema 版本**；当前冻结 schema_version 0.2.0（§24）的数组字段如上归类，将来 RFC 0001 `examples[]` / RFC 0003 `properties[]` / RFC 0002 `contracts` rider 字段（schema_version 0.3.0，RFC 0005 §12 / 附录 D.2）落地后**同此义务**——rider 字段一经引入即按其性质归类（set 派生者规范化有序、声明序者保留）。registry 重建件（§10）的 schema_version 随 RFC 0001–0004 rider 落地而从 0.2.0 升至 0.3.0。（注：旧 Draft 把 `examples[]` / `properties[]` 标注为「§24」是悬空交叉引用——二者不在冻结 §24 0.2.0 schema 内，属未合并的 0.3.0 rider；本节勘误为按 schema 版本分别归属。）
-- **确定性链结论口径收紧**（修正「构建产物字节级确定性」过强声称）：`.ailmeta` 顶层字段序固定（§78）+ 数组字段规范化有序 → **`.ailmeta` 字节级确定性**；依赖闭包固定（§9.1 `integrity` 哈希锁定源码归档）→ **字节一致的依赖闭包**（**非**二进制产物整体——原生二进制复现另依赖 ailc/codegen lowering 确定性，见 §15 #6 未闭合、留 review）。三项前因中前两项只约束 `.ailmeta`、第三项只锁定依赖闭包、均**不触及**原生二进制产物（LLVM codegen / 链接 / 内嵌构建路径与时间戳）；§5.1「双产物」明定构建产物 = 原生二进制 + `.ailmeta`，本 RFC 闭合的为 `.ailmeta` 一侧 + 依赖闭包，二进制 lowering 一侧诚实地不在本 RFC 闭合范围。（此条确立 `.ailmeta` **数组字段规范化有序**义务的规范性来源——为 §9.2 新立义务、闭合 RFC 0007 §6 矛盾；**顶层字段序固定**义务的来源为 RFC 0005 §3 #3（§3 #3 原文「固定字段排序」仅指顶层字段序）；§78 仅为 Part IV 资料性实现层描述、不构成本义务权威，见 §10。）
+- **`.ailmeta` 数组字段规范化义务**（闭合「set/Map 派生数组序不稳」漏洞、按数组性质分类）：`.ailmeta` 中**由编译器内部 set/Map 派生**的数组字段（如 `effects[]`，§24 schema_version 0.2.0——其元素集合由 effect 分析得出、迭代序受 RFC 0007 §6 Hash seed 影响）序列化时**必须**为**规范化有序**——按字段自然序（字符串字典序 / 数值序）**预先排序后**再写出，**不得**按内存中 set/Map 的迭代序（后者由 RFC 0007 §6 显式登记为**未指定**、且 Hash seed 随机化 → 直接序列化会破坏字节级复现）。**声明序数组**（`input[]` / `fields[]` / `variants[]` / `errors[]` / `sigs[]`，§24）**必须保留源码声明序**、**不得**排序——其序承载 positional 与 ABI 语义（形参位置即 positional 身份、`layout(C) struct` 字段序 = 内存布局序 = C ABI（§25.4 line 1413）、enum/error `variants[]` 判别式序承载语义），且本就以有序 AST 承载、非 Map 派生、不存在迭代序漂移。**顶层数组**（`functions[]` / `types[]` / `errors[]` / `declarations[]`，§24 line 1332 顶层 schema）**同归声明序类、必须保留源码声明序**——顶层条目以有序 AST 承载、不得按字母序或 Map 迭代序序列化（强制 ailc 以有序结构存储顶层符号表、消除 HashMap 符号表实现导致的跨构建/跨实现 `.ailmeta` 字节漂移）；顶层 `errors[]`（全模块 error 枚举索引、§24 line 1332）同归声明序（与函数级 `errors[]` 同理、保留源码序）。**`errors[]` 为签名派生**（§24 line 1343「单一真源：≡ 签名 E（error 枚举）变体集」、§17 line 713）——与类型层 `variants[]`（§24 line 1352 error 条目）**同源同序**（同一 E 的声明序），故同归声明序类、**不得**字母序规范化（字母序化 `errors[]` 会与同文件 `variants[]` 形成同源双序；「须按 Hash seed 排序」前提对签名派生数组不成立——Hash seed 仅影响 effect 分析的 set 迭代序、不影响签名 E 的声明序）。**schema 版本关系**：数组规范化有序义务**适用于全部数组字段、无论其所属 schema 版本**；当前冻结 schema_version 0.2.0（§24）的数组字段如上归类，将来 RFC 0001 `examples[]` / RFC 0003 `properties[]` / RFC 0002 `contracts` rider 字段（schema_version 0.3.0，RFC 0005 §12 / 附录 D.2）落地后**同此义务**——rider 字段一经引入即按其性质归类（set 派生者规范化有序、声明序者保留）。registry 重建件（§10）的 schema_version 随 RFC 0001–0004 rider 落地而从 0.2.0 升至 0.3.0。（注：旧 Draft 把 `examples[]` / `properties[]` 标注为「§24」是悬空交叉引用——二者不在冻结 §24 0.2.0 schema 内，属未合并的 0.3.0 rider；本节勘误为按 schema 版本分别归属。）
+- **确定性链结论口径收紧**（修正「构建产物字节级确定性」过强声称）：`.ailmeta` 顶层字段序固定（RFC 0005 §3 #3；§78 仅资料性）+ 数组字段规范化有序 → **`.ailmeta` 字节级确定性**；依赖闭包固定（§9.1 `integrity` 哈希锁定源码归档）→ **字节一致的依赖闭包**（**非**二进制产物整体——原生二进制复现另依赖 ailc/codegen lowering 确定性，见 §15 #6 未闭合、留 review）。三项前因中前两项只约束 `.ailmeta`、第三项只锁定依赖闭包、均**不触及**原生二进制产物（LLVM codegen / 链接 / 内嵌构建路径与时间戳）；§5.1「双产物」明定构建产物 = 原生二进制 + `.ailmeta`，本 RFC 闭合的为 `.ailmeta` 一侧 + 依赖闭包，二进制 lowering 一侧诚实地不在本 RFC 闭合范围。（此条确立 `.ailmeta` **数组字段规范化有序**义务的规范性来源——为 §9.2 新立义务、闭合 RFC 0007 §6 矛盾；**顶层字段序固定**义务的来源为 RFC 0005 §3 #3（§3 #3 原文「固定字段排序」仅指顶层字段序）；§78 仅为 Part IV 资料性实现层描述、不构成本义务权威，见 §10。）
 
 > deep-review §6.1 明言「缺的是连接，不是构件」——§78 确定性输出 + §31 强制随包源码已就位，加 `ail.lock` 记哈希**显著降低**元数据伪造与下发篡改两类攻击面（**非完全闭合**——残留缺口**至少包括**：首次 registry 拉取的 TOFU 信任、作者签名 / 账号接管、以及 **registry 自身被入侵**（§10 把 `.ailmeta` 权威集中于 registry、§32 消费方不重建、§9.1 `integrity` 哈希覆盖**源码归档**而非 `.ailmeta` 文本，故被入侵 registry 可下发伪造 `.ailmeta` 而不被消费方检出），见 §11 #4 / #5 签名推迟）。
 
@@ -361,13 +370,14 @@ integrity = "sha256-..."
 | §5 `extern ident` 文法不变 | §27 `extern := "extern" ident { }` | ✅ 名字解析校验 |
 | §6 CStr = `layout(transparent)` | §7.2 transparent 单字段透传 / §4 白名单 | ✅ 按值封送 = `const char*`；transparent 触发 §6.4 笼统 borrow 禁令（AIL8004）从根闭合 borrow 双重间接 UB（F11 勘误：UB 源于 borrow 非 by-value，§6.2 注释已修正） |
 | §4 `CString` 非 FFI-safe（白名单仅 `CStr`） | §6.2 `CString { buf, len }` 2-field owning（非 transparent 单字段） | ✅ 白名单 C 串行仅列 `CStr`；`CString` 入非 FFI-safe 拒绝集（消解「CStr/CString 同为 transparent FFI-safe」三方矛盾：§4 白名单 vs §6.2 2-field vs §7.2 单字段规则） |
+| §6.2 封送方法（`string.to_cstr` / `CString.as_cstr`）文法合规 | §27 struct 内联 fn（`as_cstr`、§27 line 1486）+ §83 #2 v0.3 内建类型方法附加（`string.to_cstr`、unowned） | ✅ 本 RFC 仅规范方法【签名+语义】、**不出现字面 `impl` 块**——零新产生式成立（§27 无 impl 产生式）；`CString.as_cstr` 冻结合规内联（CString 为 struct）、`string.to_cstr`（string 为 #[lang] 内建非 struct、无法内联）签名层声明、定义文法依赖 §83 #2 v0.3 独立 impl 块特性（unowned、落地前须先指定 owner RFC） |
 | §6.1 string ABI `{i64 len, i8* ptr}` | §77 line 3093 | ✅ 明确化（修正旧 Draft 误用 `uintptr`——非规范类型） |
 | §7.2 layout 产生式体扩展 + 组合合法性 | §27 `layout "(" ident ")"`（显式演进） | ⚠️ 文法体扩展（标注）+ 8 条 AIL8003 校验规则（含 packed+transparent 互斥） |
 | §7.3 size_of/align_of/offset_of 返 `uint64` | 经类型实参调用（**调用式 contingent on RFC 0006 §7 A/B 终审**：方案 B = `size_of::<T>()`、方案 A = `size_of<T>()`）/ 同 panic 内征先例 | ✅ 零新关键字（修正旧 `uintptr`→`uint64`） |
 | §8 panic 跨 FFI→abort | §17 / §89 #3 / §90 #4 | ✅ 重申不变 |
 | §9.1 ail.lock `integrity` 哈希对象 = 源码归档字节 | §10 registry 从源码重建 / §31 强制随包源码 | ✅ 显式定义（消除「哈希什么」歧义） |
-| §9.2 `.ailmeta` 字节级确定性（数组规范化有序 + 声明序数组保留） | RFC 0005 §3 #3（确定性义务权威）/ RFC 0007 §6（Hash 迭代序未指定）/ §25.4 `layout(C)` 字段序 = ABI | ✅ MUST 仅覆盖 set/Map 派生数组（`effects[]`）；声明序数组（`input[]`/`fields[]`/`variants[]`/`errors[]`/`sigs[]`）保留源码序（`errors[]` 签名派生 ≡ E variants、§24 line 1343、与类型层 `variants[]` 同源同序、不入 set/Map 派生类）；闭合 Hash 随机化 vs `.ailmeta` 字节级复现矛盾（§78 仅资料性）；结论口径收紧为 `.ailmeta` 字节级 + 依赖闭包字节一致（二进制 lowering 见 §15 #6 未闭合） |
-| §9.2 schema 版本归属（0.2.0 vs 0.3.0 rider） | §24 schema_version 0.2.0 / RFC 0005 §12（line 215 handoff）/ 附录 D.2（line 150，0.3.0 rider schema 升级） | ✅ `effects[]` 归 §24（0.2.0、set/Map 派生）；`errors[]` 签名派生、归声明序类（同 §9.2）；`examples[]`/`properties[]`/`contracts` 为 RFC 0001–0003 rider（0.3.0）；规范化义务跨版本适用 |
+| §9.2 `.ailmeta` 字节级确定性（数组规范化有序 + 声明序数组保留） | RFC 0005 §3 #3（确定性义务权威）/ RFC 0007 §6（Hash 迭代序未指定）/ §25.4 `layout(C)` 字段序 = ABI | ✅ MUST 仅覆盖 set/Map 派生数组（`effects[]`）；声明序数组（`input[]`/`fields[]`/`variants[]`/`errors[]`/`sigs[]` + **顶层** `functions[]`/`types[]`/`errors[]`/`declarations[]`、§24 line 1332 顶层 schema）保留源码序（`errors[]` 签名派生 ≡ E variants、§24 line 1343、与类型层 `variants[]` 同源同序、不入 set/Map 派生类；顶层数组以有序 AST 承载、强制 ailc 有序存储顶层符号表消除 HashMap 漂移）；闭合 Hash 随机化 vs `.ailmeta` 字节级复现矛盾（§78 仅资料性）；结论口径收紧为 `.ailmeta` 字节级 + 依赖闭包字节一致（二进制 lowering 见 §15 #6 未闭合） |
+| §9.2 schema 版本归属（0.2.0 vs 0.3.0 rider） | §24 schema_version 0.2.0 / RFC 0005 §12（line 217 handoff「0.2.0→0.3.0 升级由 rider 承担」）/ 附录 D.2（line 152，schema_version 当前 0.2.0、RFC 0001–0004 预留 0.3.0） | ✅ `effects[]` 归 §24（0.2.0、set/Map 派生）；`errors[]` 签名派生、归声明序类（同 §9.2）；`examples[]`/`properties[]`/`contracts` 为 RFC 0001–0003 rider（0.3.0）；规范化义务跨版本适用 |
 | §9 ail.lock + MVS | §30.1 ail.toml semver / §42 依赖审计 | ✅ 工具链层补齐 |
 | §10 registry 重建 .ailmeta（MUST 级） | §31 强制随包源码 / RFC 0005 §3 #3 确定性 | ✅ 闭合信任链（§24 schema 为规范性来源，§78 资料性） |
 | §11 §42 4 步校正 + provenance（签名推迟） | §42 line 2005–2011 / §33.1 std.crypto 占位 | ✅ 4 步与冻结一致 + 诚实登记 gap |
@@ -439,8 +449,16 @@ integrity = "sha256-..."
 - **F9（M）ail-lock-reproducibility-tension**——§9.2 把函数级 `errors[]` 从 set/Map 派生类移至声明序类（与类型层 `variants[]` 同源同序、保留 E 声明序、**不得**排序）：纠正「`errors[]` 由 set/Map 派生、须字母序规范化」错误前提（§24 line 1343「errors[] 单一真源 ≡ 签名 E 变体集」、§17 line 713——签名派生、Hash seed 不影响）；set/Map 派生（须预排序）类仅留 `effects[]`；§9.2 加「`errors[]` 签名派生、同源同序于 `variants[]`、字母序化会形成同源双序」说明；§12 RFC 0007 §6 行 + §13 §9.2 行 + §13 schema 版本归属行三处同步移 `errors[]` 出 set/Map 类。
 - **F10（M）ailmeta-registry-authority**——§10 line 308「完整性」项对齐 §9.1 精确语义：`integrity` 哈希对象 = registry 下发的**源码归档**字节流（**非**重建 `.ailmeta`）、仅防源码归档下发篡改（不覆盖伪造 `.ailmeta`）；§9.1 末括注加条件限定——「校验源码归档即连带锁定 `.ailmeta`」**仅当消费方自源码重建时成立**、§32 消费方不重建故被入侵 registry 仍可下发伪造 `.ailmeta`（指向 §10/§11 #4 残留缺口）；与 §9.2 line 290 / §10 line 309 / §11 #4 line 325 gap-disclosure 措辞一致。
 - **F11（L）ailmeta-registry-authority**——§10 flowchart line 302「顶层字段序固定 §78」改「顶层字段序固定（RFC 0005 §3 #3；§78 仅资料性）」，与 line 306 权威重定向注 + §13 自洽行一致（顶层字段序义务权威 = RFC 0005 §3 #3 Conformance，§78 为 Part IV 资料性）。
-- **F12（L）cross-rfc-update-0009**——§9.2 + §13 schema 版本归属行的「RFC 0005 §13」勘误为「RFC 0005 §12 / 附录 D.2」（§13 开放问题无 schema_version；真源 §12 line 215 handoff「0.2.0→0.3.0 升级由 rider 承担」+ 附录 D.2 line 150「schema_version 当前 0.2.0、RFC 0001–0004 预留 0.3.0」）；§13 schema 行同时补 line 215/150 锚点。
+- **F12（L）cross-rfc-update-0009**——§9.2 + §13 schema 版本归属行的「RFC 0005 §13」勘误为「RFC 0005 §12 / 附录 D.2」（§13 开放问题无 schema_version；真源 §12 line 217 handoff「0.2.0→0.3.0 升级由 rider 承担」+ 附录 D.2 line 152「schema_version 当前 0.2.0、RFC 0001–0004 预留 0.3.0」）；§13 schema 行同时补 line 217/152 锚点。
 - **F13（L）cross-rfc-update-0009**——§7.3 line 226 + §13 §7.3 自洽行加 contingent 标记：内征调用式随 RFC 0006 §7 A/B 终审决断 contingent（方案 B = turbofish `size_of::<T>()`、方案 A = `size_of<T>()`）——RFC 0006 §7 截至 Draft 推荐方案 B 但尚未收敛（待 review + 对抗验证终审），§7.3 不再硬编码 turbofish 为既决事实。
+
+**pass-5 修正**（pass-4 对抗 workflow 复验报 6 条 confirmed [0H/2M/4L]，本批逐一修正；finding ID F1–F6 为 pass-5 workflow 编号）：
+
+- **F1（M）ffi-marshalling-completeness（`borrow_mut` 跨 FFI）**——§6.4 标题与全文扩为「`borrow` / `borrow_mut` 跨 FFI 的一般规则」：`borrow_mut T`（可变借用）跨 FFI 复用与 `borrow T` 相同规则——**当且仅当 T 为 C 布局 struct（`layout(C)` / `layout(C + packed)` / `layout(C + align(N))`）**，封送为 C `T*`（允许 C 侧经指针写入调用方缓冲、变异跨 FFI 合法用例如 `read` / `gethostname` / `snprintf` 的输出参数）；借检查器在调用点保证调用方侧独占（`borrow_mut` 排他性）、变异由 `unsafe` 块授权。其余 FFI-safe 类型 `borrow_mut` 同 `borrow` 一律 → `AIL8004`。§6.4 标题 / 开头段 / 表头+表首行 / 判定准则四处同步（消除「§27 `mode := "borrow" | "borrow_mut" | "move" | "copy"` 合法但 §6.4 仅判 `borrow`、`borrow_mut` 跨 FFI 合法性悬空」缝隙）。
+- **F2（M）ailmeta-byte-determinism（顶层数组声明序）**——§9.2 声明序数组清单扩为含**顶层数组** `functions[]` / `types[]` / `errors[]` / `declarations[]`（§24 line 1332 顶层 schema）——顶层条目以有序 AST 承载、必须保留源码声明序、不得按字母序或 Map 迭代序序列化（强制 ailc 以有序结构存储顶层符号表、消除 HashMap 符号表实现导致的跨构建/跨实现 `.ailmeta` 字节漂移）；§13 §9.2 自洽行同步补顶层数组清单。
+- **F3/F4（L/L）ailmeta-byte-determinism（§9.2 顶层字段序归属 §78→RFC 0005 §3 #3，两 dim 同一 §9.2 line 288 首子句）**——§9.2 确定性链结论口径首子句「`.ailmeta` 顶层字段序固定（§78）」勘误为「（RFC 0005 §3 #3；§78 仅资料性）」——与 line 288 末括注「§78 仅为 Part IV 资料性…不构成本义务权威」、§10 line 302 flowchart + line 306 权威重定向注、§13 §9.2 自洽行四处一致（顶层字段序义务权威 = RFC 0005 §3 #3 Conformance、非 §78），消解首子句单独引 §78 作权威的内部矛盾。
+- **F5（L）cross-rfc-update-0009（line 锚点勘误）**——§13 schema 版本归属行 + §16 pass-4 F12 记录的「RFC 0005 §12 **line 215** handoff」勘误为「**line 217**」（line 215 实为「与 RFC 0001–0004 正交」、line 217 才是 schema_version handoff「0.2.0→0.3.0 升级由 rider 承担」）；「附录 D.2（**line 150**…）」勘误为「附录 D.2（**line 152**…）」（line 150 = D.1 规范性词汇、line 152 = D.2 语言与类型术语 含 schema_version 行）——修正 pass-4 F12 引入的悬空行锚（指向非 handoff / 非 D.2 的行）。
+- **F6（L）ffi-grammar-frozen-compliance（§6.2 独立 impl 块超冻结合法）**——§6.2 改写为冻结合规形：`impl CString { fn as_cstr... }` → 内联进 struct 定义（`struct CString { buf, len, fn as_cstr(borrow self) -> CStr }`、§27 line 1486 struct 内联 fn、冻结合规）；`impl string { fn to_cstr... }`（`string` 为 #[lang] 内建非 struct、无法内联）改为 std.core 内建方法【签名】声明 + 显式「文法依赖声明」注——`string.to_cstr` 的定义语法依赖 §83 #2 既列 v0.3【内建类型方法附加（独立 impl 块）】特性、该特性尚无 owner RFC、本 RFC 仅规范【签名+语义】不出现字面 `impl` 块、落地前须先指定文法通道。§13 加 §6.2 文法合规自洽行（零新产生式成立 + §83 #2 依赖声明）——消解「§6.2 用独立 `impl` 块」与 §13「零新产生式」+ §27（无 impl 产生式）的矛盾。
 
 > 本批是「与外部世界交互的信任与确定性」主题，验证重心在**FFI 安全性（白名单是否真闭合、printf UB 是否真消除）与供应链 soundness（lockfile 是否真复现、信任链是否真闭合）**，比 0006 形式化、0007 确定性、0008 可观测更偏「跨边界正确性 + 攻击面闭合」。
 
