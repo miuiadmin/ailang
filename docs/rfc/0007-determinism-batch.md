@@ -65,7 +65,7 @@ synthesis §4 的**交叉印证矩阵**是全场可信度最高的必修项—�
 | 调用 `f(a, b, c)` | f 先，再 a → b → c |
 | 成员 `a.b` | a 先 |
 | 下标 `a[i]` | a 先，i 后 |
-| 结构体构造 `T { f1: e1, f2: e2 }` | e1 → e2（声明序，与字段 Drop 序 §90 #5 一致） |
+| 结构体构造 `T { f1: e1, f2: e2 }` | 各字段值表达式按**构造器书写序**（左到右，e1 → e2）求值——该序独立于 struct 类型内的字段**声明序**（构造器允许乱序写 `T { y: e2, x: e1 }`，求值序 = 书写序）。字段 **Drop 序**仍为类型声明序（§90 #5），与求值序是两件事 |
 | 列表 / Map 字面量 `[a, b]` / `[k1: v1, k2: v2]` | 元素左到右 |
 | `send` `h ! m` | h 先，m 后 |
 | `&&` / `\|\|` | 左先；右**条件性**求值（短路） |
@@ -113,7 +113,7 @@ trait Hash {
 }
 ```
 
-- **基础类型实现**：`int`/`uint`/`bool`/`float`/`byte`/`char` 直接实现 `Hash`（值经 `Hasher` 写入）；`string` 实现 `Hash`（UTF-8 字节序列）。
+- **基础类型实现**：`int`/`uint`/`bool`/`float`/`byte`/`char` 直接实现 `Hash`（值经 `Hasher` 写入）；`string` 实现 `Hash`（UTF-8 字节序列）。**`float` 的 `Hash` 须与其 `Eq` 一致**（守住 `a == b ⟹ hash(a) == hash(b)` 不变量）：IEEE 754 下 `+0.0 == -0.0` 为真（§90 #2），故 `float` 的 `Hash` **必须**把 `+0.0` 与 `-0.0` 归一为同一哈希（按数值而非位模式）；`NaN ≠ NaN`（§90 #2），其相等前提为假、对 `Hash` 不施加一致性约束（实现可按位模式或固定值，因 `Eq` 已排除其相等匹配，查找 NaN 键永不命中）。
 - **语义类型**：透明别名（`kind: alias`）继承 base 的 `Hash`（透明别名不改变类型身份，按 §15.3 与 base 同一）；名义 semantic（`kind: semantic`，§15.3）的 `Hash` **不自动继承**——`Hash` 是**运算 trait**（带方法 `fn hash(...)`），属 §15.3 / §92 #7 锁定的「marker vs 运算」二分中的**运算类**，与 `Eq` / `Ord` 同类，**须显式实现**（v0.3 impl 语法落地后），保持 newtype 语义安全与 `Hash`/`Eq` 对称（二者皆须显式实现，避免「`Eq` 显式而 `Hash` 隐式继承」导致二者可能不一致 → 破坏 `a == b ⟹ hash(a) == hash(b)` 不变量）。唯一自动经 base 的例外是 `Display`（§15.3 已锁定的封闭例外集，非运算 trait）。
 - **Map/Set 的 `K` / `T` 约束**：`Map<K, V>` 要求 `where { Hash<K>, Eq<K> }`；`Set<T>` 要求 `where { Hash<T>, Eq<T> }`（插入 / 查找需哈希 + 相等）。
 - `Hasher` 为 std.core 类型（默认 SipHash-1-3，对齐 Rust HashMap 默认；seed 随机化以抗 HashDoS）。
@@ -158,7 +158,7 @@ cast_expr := postfix "as" type          // x as int / x as float32 / x as uint8
 ```
 
 - `as` 在**表达式位置**为转换算子，在 **import 语句位置**为别名（parser 按位置消歧，零冲突）。
-- 优先级：高于赋值、低于比较（插入 §11 表级 3.5 或独立级）。
+- 优先级：**高于乘除算术**（`*` / `/` / `%`）、低于一元前缀（`*` 解引用 / `!` / `try`）——对齐 Rust `as`（`x as f32 * 2.0` 解析为 `(x as f32) * 2.0`），故自然高于加减、比较、逻辑、赋值各级。落地时插入 §11 运算符表相应级。
 
 **转换语义**（安全代码永不 UB，RFC 0005 §6）：
 
@@ -167,11 +167,12 @@ cast_expr := postfix "as" type          // x as int / x as float32 / x as uint8
 | 整数扩宽（`int8` → `int16` → `int32` → `int64`） | 值不变，零成本（符号扩展） |
 | 整数收窄（`int64` → `int8`） | **截断低位**（保留低 N 位）——定义行为，非 UB |
 | 有符号 ↔ 无符号（同宽度） | 位模式重解释（`int as uint` = 同 bit pattern 重读） |
+| 符号 + 宽度同时变化（如 `int8 as uint16`、`uint32 as int8`） | **先按源符号扩展/截断到目标宽度，再按目标符号位重解释**（定义行为）。例：`int8` 值 `-1`（位 `0xFF`）`as uint16` → 符号扩展为 `0xFFFF` → 重解释为 `65535`（对齐 Rust `as`）；`uint8` 值 `255` `as int16` → 零扩展为 `0x00FF` → `255` |
 | `float` → 整数 | **saturating**：NaN → 0；`x < INT_MIN` → `INT_MIN`；`x > INT_MAX` → `INT_MAX`；否则**向零截断**（trunc）。对齐 Rust `as` + WebAssembly `trunc_sat`，**永不 UB** |
 | 整数 → `float` | 精确（小整数）或 IEEE 754 round-to-nearest（大整数失精度，定义行为） |
 | `float32` ↔ `float64` | 精确（f32→f64）或 round-to-nearest（f64→f32） |
-| `bool` ↔ 数值 | **禁止**（编译错误）——避免 C 的隐式 bool 真值陷阱；需 `b as int` 用显式 `(if b 1 else 0)` |
-| `char` ↔ `int`/`uint` | `char as uint` = Unicode 标量值（§8）；`uint as char` 须为合法标量值（U+0000–U+10FFFF，非 surrogate），否则 panic `InvalidCodePoint` |
+| `bool` ↔ 数值 | **禁止**（编译错误）——避免 C 的隐式 bool 真值陷阱。`if` 为语句（§27）、不产出值，故 `(if b 1 else 0)` **非合法 AILang**；需数值化时用 std.core 方法 `b.to_int()`（`true→1` / `false→0`），或在函数体内用 `match` |
+| `char` ↔ 整数（任意宽度/符号） | `char as <整数类型>` = Unicode 标量值（零扩展到目标宽度；目标过窄则按整数收窄规则截断，定义行为）；`<整数类型> as char` 取值须为合法标量值（U+0000–U+10FFFF，非 surrogate），否则 panic `InvalidCodePoint`（签名类型负值必失败） |
 
 **设计说明**：
 
@@ -220,16 +221,15 @@ RFC 0005 §7 已定义 profile 的**规范语义**（debug 检测全开 / releas
 [profile.debug]
 opt-level = 0              # 优化级别（0=无优化，开发期）
 overflow-checks = true     # 整数溢出 → panic（§90 #1 debug）
-debug-assertions = true    # 契约 / 约束 / assert 启用（§20 / §15.4）
 
 [profile.release]
 opt-level = 3              # 优化级别（3=最高）
 overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规范语义）
-debug-assertions = false   # 默认关；可配 true 保留契约断言（换性能）
 ```
 
-- 三配置项：`opt-level`（0–3，优化级别）、`overflow-checks`（bool，溢出检测）、`debug-assertions`（bool，契约 / 断言）。
-- debug 默认值固定（检测全开）；release 的 `debug-assertions` **可配**（默认 false，保留断言换性能的场景设 true）。
+- 两配置项：`opt-level`（0–3，优化级别）、`overflow-checks`（bool，**整数溢出**检测）。
+- **契约 / 约束 / `assert` / 边界检查不进 profile**：均为**无条件运行期检查**，不受 profile 调节——约束违约 panic `ConstraintViolation`（§92 #2 / §15.4）、`assert` / `unwrap` panic（§89 #3）、越界 panic `IndexOutOfBounds`（§17）、整数除零 panic `DivideByZero`（§90 #3）。§17 panic 表中**仅整数溢出**标注 `(debug)`（§90 #1，唯一 profile-gated 检查），其余均无 profile 限定。故**本表无 `debug-assertions` 配置项**（其无可控对象）；profile 仅调节 `opt-level` 与整数溢出检测——此与 RFC 0005 §7 release 行对齐（契约断言 **MUST** 启用、不可关闭）。
+- debug 默认值固定（检测全开）；release 的 `overflow-checks` 固定 false（切到 §90 #1 回绕规范语义）。
 - **安全性不变量**（RFC 0005 §7）：无论配置，安全代码不产生 UB；`overflow-checks=false` 仅切到 §90 #1 锁定的 release 回绕规范语义，非 UB。
 
 ---
@@ -254,7 +254,7 @@ debug-assertions = false   # 默认关；可配 true 保留契约断言（换性
 |---|---|---|
 | §4 左到右 + `&&`/`\|\|` 短路 | §11 运算符表（短路已注） | ✅ |
 | §4 赋值左值位置子表达式先求值 + 产 `void` | 与复合赋值一致（位置先于右值）；链 `a=b=c` 类型拒绝 | ✅ 自洽（不重复求值位置） |
-| §4 结构体构造声明序 | §90 #5 字段 Drop 声明序 | ✅ 一致 |
+| §4 结构体构造求值序 = 构造器书写序（独立于字段声明序） | §90 #5 字段 Drop 声明序（求值序 ≠ Drop 序，作用域不同） | ✅ 一致（不矛盾） |
 | §5 locals 逆声明序 | §90 #5 字段声明序（作用域不同，不矛盾） | ✅ |
 | §5 panic 同序 drop | §89 #3 panic 展开 | ✅ |
 | §6.1 名义 semantic 的 Hash 不自动继承 | §15.3 / §92 #7 marker-vs-operational 二分（Hash=运算 trait，同 Eq） | ✅ 对齐（消除与 §15.3 矛盾 + Hash/Eq 对称） |
@@ -267,6 +267,7 @@ debug-assertions = false   # 默认关；可配 true 保留契约断言（换性
 | §8 char 位复制 Copy | §18.4 三分类（追加 char，同 byte） | ✅ |
 | §8 string Eq 字节序 | §86 #8 == 解糖 Eq.eq | ✅ |
 | §9 overflow-checks | §90 #1 + RFC 0005 §7 | ✅ |
+| §9 契约/约束/assert/边界检查不进 profile（无 debug-assertions 项） | §92 #2 / §15.4 / §89 #3 / §17（ConstraintViolation·IndexOutOfBounds·DivideByZero 均无条件） | ✅ 与 RFC 0005 §7 一致 |
 | 零新关键字 | §9（56）；`as` 已含、`char` 为类型词非关键字 | ✅ 已核查 |
 
 ---
@@ -287,7 +288,7 @@ debug-assertions = false   # 默认关；可配 true 保留契约断言（换性
 
 ## 13. 开放问题
 
-1. **`as` 优先级定位**——§7 建议插入 §11 表级 3.5（高于比较、低于赋值）或独立级；精确位置待 parser 实现时定。
+1. **`as` 优先级定位**——已定为**高于乘除算术**（§7，对齐 Rust：`x as f32 * 2.0` = `(x as f32) * 2.0`、低于一元前缀）；精确表内级号待 §11 运算符表落地时编入。
 2. **复合赋值别名语义**——§4 `x += e` 的读-求-写序在安全代码中无歧义（borrow 不逃逸），但若未来引入 `unsafe` 别名，需复查。
 3. **有序 Map 变体**——§6.3 默认未指定；是否引入 `SortedMap<K,V>`（BTree，迭代=K 升序，需 Ord）作为标准库类型，留 review（性能 vs 确定性 trade-off）。
 4. **无效 UTF-8 迭代行为**——§8 `for ch in s` 遇无效字节序列：panic `InvalidUtf8`（严格）或替换 U+FFFD（宽容）？推荐 panic（安全代码不静默吞错），留 review。

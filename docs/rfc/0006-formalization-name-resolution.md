@@ -84,10 +84,11 @@ stmt := "let" ident (":" type)? "=" expr
 **设计说明**：
 
 - `if_stmt` 的 `expr` 条件**必须**为 `bool`（§15），无 truthy 隐式转换（对齐 AILang 无隐式转换原则，唯一例外是 `string + Display` §11）。
-- `for` 的迭代源 `expr` 须为可迭代类型（`List`/`Array`/`Set`/`Map`/`Iterator` trait）；`Map` 迭代序见 §6/RFC 后续 P0-2（当前未指定，RFC 0005 §13 已登记）。
+- `for` 的迭代源 `expr` 须为可迭代类型（`List`/`Array`/`Set`/`Map`/`Iterator` trait）；`Map` 迭代序见 [RFC 0007](./0007-determinism-batch.md) §6.3（显式登记为 unspecified，诚实不假装有序；需确定序须显式 `sort_by_key`）。
 - `loop_stmt` 是**语句**（非 value 表达式），体类型为 `never`（§15.1：`loop` 表达式类型为 `never`/⊥）；`break` / `return` 是控制流出口（**不携带值**），`loop` 不产出值。这与冻结 §15.1 完全一致、**非语义演进**——`loop` 未加入 §27 `expr` 产生式，故 `let x = loop { … }` 不可达（loop 仅语句位置合法）。若未来要让 `loop` 产出值（`break expr` + loop 类型 = break 值类型），须作为对 §15.1 的显式演进另立 RFC（走 RFC 0005 §9 解冻通道）并同时把 `loop` 加入 `expr` 产生式——本 RFC 不引入此项（见 §11 #1）。
 - `parallel_for` / `parallel_reduce` 按 §87 #9 为**表达式**（返回 `List<R>` / 归约值），本 RFC 将其**并入 §27 `primary`**（与 `struct_init` / `list_lit` / `map_lit` 同级），故 `let squares = parallel for x in data { x * x }`（§21.10 / §58 冻结示例）可从 `expr` 链派生；语句位置经 §27 `stmt := … | expr` 分支自动可达（故 `stmt` 产生式不再单列 parallel）。`parallel_reduce` 的 `op` 实参为 lambda 字面量（如 `(a, b) -> a + b`），其形式依赖一等闭包——§21 冻结声明 v0.2 无一等闭包，故 §21.10 / §58 的 `parallel reduce(…)` 示例为**前向示例**，op 字面量的完整定义随闭包 RFC 落地（见 §11 #2）；本 RFC 只锁 `parallel_reduce` 产生式骨架（body 已用 `arm_body` 兼容冻结 body 形 `{ x -> … }` 与纯 block）。
-- `break`/`continue` 仅在 loop/for 体内合法，嵌套函数内非法（编译期校验）。
+- `break`/`continue` 仅在 `loop` / `for` / `while` 体内合法，嵌套函数内非法（编译期校验）。
+- **`in` 为 `for` 迭代分隔符**（`for_stmt := "for" pattern "in" expr block`）：`in` 在 §9 关键字表（56）与 §393 上下文关键字表中**均未登记**——本 RFC 确认其为**上下文关键字**（contextual keyword，仅 `for` 头部合法、其余位置作普通 `ident`），落地时登记进 §393（与既有上下文关键字同列），**不**计入 §9 的 56 保留关键字（零新关键字）。
 
 > `break`/`continue` 已在 §9 控制流类别（56 关键字之一，§83 #5 锁定），本 RFC 仅补其**产生式体**（原 §27 `stmt` 骨架未列其形），**不新增关键字**。其语义在 §16（统一 `{ }` 控制流）已隐含使用、§298/§381 已列。
 
@@ -114,13 +115,14 @@ float_lit := decimal "." digits exp?                        // 1.0  1.5  3.14e0 
 exp       := ("e" | "E") ("+" | "-")? digits                // 指数用 digits（允许前导零，如 e05；不复用 decimal）
 
 // 字符
-char_lit  := "'" ( char_escape | [^'\\ \n] ) "'"             // 'a'  '\n'  '\u{1F600}'；单引号内单字符或转义
+char_lit  := "'" ( char_escape | [^'\\\n] ) "'"             // 'a'  ' '  '\n'  '\u{1F600}'；单引号内单字符（含空格 ' '）或转义
 
 // 字符串
-string_lit:= '"' ( string_escape | [^"\\] )* '"'             // "hello\nworld"；双引号包裹
+string_lit:= '"' ( string_escape | [^"\\\n] )* '"'           // "hello\nworld"；双引号包裹，原始换行禁止（须 \n 转义，与 char_lit 一致）
 string_escape := "\\" ( "n" | "t" | "r" | "\\" | "'" | '"' | "0"   // 常规转义 \n \t \\ \' \" \0
                        | "u{" hex+ "}" )                      // Unicode 标量值 \u{1F600}（1–6 位 hex）
 char_escape := string_escape                                // 字符转义 = 字符串转义（共用；char_lit 引用此别名，闭合悬空非终结符）
+hex        := [0-9a-fA-F]                                   // 单个十六进制数字：\u{hex+} 的元素与 hex_lit 的数字共用单一来源
 
 literal   := int_lit | float_lit | char_lit | string_lit | "true" | "false"
 ```
@@ -131,7 +133,7 @@ literal   := int_lit | float_lit | char_lit | string_lit | "true" | "false"
 - **数字分隔符 `_`**：允许 `1_000_000` 提升可读性（Rust/Java/Python 通行）；`_` 不可在首尾或 `0x` 紧后。
 - **进制前缀**：`0x`/`0o`/`0b`（对齐 Rust/Go）；纯 `0` 开头**不**作八进制（避免 C 的 `010` 陷阱），八进制必须 `0o`。
 - **转义**：字符串/字符共用 `string_escape`；`\u{H+}` 为 Unicode 标量值（U+0000–U+10FFFF， surrogate 禁止——编译期校验）。原始字符串（`r"..."`）**推迟 v0.4**（开放问题 #2）。
-- **词法优先级**：`float_lit` 优先于 `int_lit`（含 `.` 或 `e` 者为 float）；`string_lit`/`char_lit` 由起始引号区分；`true`/`false` 为 bool 字面量（关键字，§9）。
+- **词法优先级**：`float_lit` 优先于 `int_lit`（含 `.` 或 `e` 者为 float）；`string_lit`/`char_lit` 由起始引号区分；`true`/`false` 为 bool **保留字面量**（**非** §9 的 56 关键字之一，§9 / §83 #5 锁定——作 `literal` 终结符的 bool 分支词法化，不计入关键字表）。
 - **UTF-8 源码**：`.ail` 为 UTF-8（§8.1）；非字面量上下文的非 ASCII 字符仅允许在注释与字符串/字符内容内（标识符 ASCII，§8.6 现状）。
 
 > 此补全使 §27 使用的 `string_lit` / `literal` 终结符在词法层有了定义，闭合「文法引用词法未定义」的缺口。
@@ -155,11 +157,11 @@ AILang 的既定设计（§15.2 现状）——「函数参数与返回**必须�
 2. **局部 `let` 推断**——`let x = e`：`synth(e)` 得 `T`，`x: T`；`let x: T = e`：`check(e, T)`。局部变量**不泛化**（无 let-polymorphism）——简化推断、对齐「签名显式」边界。
 3. **泛型实参推断**——`f(args)` 调用：由 `args` 的 `synth` 类型 + `f` 签名，生成约束 `T_i = synth(arg_i)`，求解泛型参数 `T_i`。**return-only 泛型**（`fn empty<T>() -> List<T>`，§86 #7）无法从实参推断，**必须**调用点显式 `empty<int>()`（turbofish 或 `<T>`，见 §7）。
 4. **字面量类型确定**——无后缀字面量（§5）的 `synth`：`int_lit` → 默认 `int`（i64），但若处 `check(T)` 上下文且 `T` 为整数类型（`uint`/`int8`..），则采用 `T`（双向消歧）；`float_lit` → 默认 `float`（f64），同理可被 `check(f32)` 收窄；`char_lit` → `char`（Unicode 标量值类型，由 [RFC 0007](./0007-determinism-batch.md) §8 引入 §15.1——本 RFC 定义 `char_lit` 的**词法**、其**类型归属** `char` 跨 RFC 由 0007 §8 闭合，两 RFC 同批落地故自洽）；`string_lit` → `string`；`true`/`false` → `bool`。
-5. **约束传播**——`constraint T { ... }`（§15.4）的构造时断言在 `check` 完成后运行期求值（非推断的一部分，§92 #8）。
+5. **约束构造断言**——`constraint T { ... }`（§15.4）的构造时断言在 `check` 完成后于**运行期**求值（非推断的一部分）：构造 `T(expr)` 触发断言、违约 panic `ConstraintViolation`（§92 #2 / §15.4，**无条件**运行期检查、不受 profile 调节）；类型层只校验 `expr` 与 `T` 的 base 类型相容，**不**证断言成立。
 
 **Decidability 声明（规范承诺）**：
 
-> **类型推断可判定**：给定全显式的函数签名，函数体内的**类型推断（synth/check 等价合一求解）**在 **O(n·α(n))** 时间内终止（n = 函数体 AST 节点数，α ≈ 近线性，来自 union-find 约束求解），**且总是产生唯一类型或报告类型错误**。**范围限定**：本承诺仅覆盖等价合一求解（局部约束图的并查集求解）；**不含** trait bound 解析（`where { Ord<T> }` 在全局 impl 表中查找，§15.10 / §86 #8 / §86 #10）——后者单独可判定（必终止、唯一结果或类型错误），但复杂度随全局 impl 表大小与单态化实例如数增长，不归 union-find、不在 O(n·α(n)) 内。可判定的依据：① 签名显式消除跨函数传播；② 局部 `let` 不泛化（无 HM 的 let-poly、无 principle type 通集问题）；③ 类型项有限 + 每次调用取 fresh 类型变量 + 名义类型按 head 相等（§15.3），Robinson 合一在有限项上必终止（`Box<T>` §15.6 仅保内存布局有限，**非**合一终止条件）；④ 等价约束经 union-find 求解，有限约束集必终止（不要求 DAG）。**前置良型条件**：decidability 承诺仅覆盖**类型良型**的程序——透明别名环（`type A = B; type B = A`）、递归类型未 `Box<T>` 间接等须由前置良型 pass 拒绝（对齐 §73 实现层陷阱），不在本终止保证范围内。
+> **类型推断可判定**：给定全显式的函数签名，函数体内的**类型推断（synth/check 等价合一求解）**在 **O(n·α(n))** 时间内终止（n = 函数体 AST 节点数，α ≈ 近线性，来自 union-find 约束求解），**且总是产生唯一类型或报告类型错误**。**范围限定**：本承诺仅覆盖等价合一求解（局部约束图的并查集求解）；**不含** trait bound 解析（`where { Ord<T> }` 在全局 impl 表中查找，§15.10 / §86 #8 / §86 #10）——后者单独可判定（必终止、唯一结果或类型错误），但复杂度随全局 impl 表大小与单态化实例如数增长，不归 union-find、不在 O(n·α(n)) 内。可判定的依据：① 签名显式消除跨函数传播；② 局部 `let` 不泛化（无 HM 的 let-poly、无 principle type 通集问题）；③ 类型项有限 + 每次调用取 fresh 类型变量 + 名义类型按 head 相等（§15.3），Robinson 合一在有限项上必终止（`Box<T>` §15.6 仅保内存布局有限，**非**合一终止条件）；合一规则内置 **occurs-check**（禁止 `T = f(... T ...)` 的无限类型，如 `T = List<T>` 直接报告类型错误、不构造循环项——对齐 HM 系合一的终止保证）；④ 等价约束经 union-find 求解，有限约束集必终止（不要求 DAG）。**前置良型条件**：decidability 承诺仅覆盖**类型良型**的程序——透明别名环（`type A = B; type B = A`）、递归类型未 `Box<T>` 间接等须由前置良型 pass 拒绝（对齐 §73 实现层陷阱），不在本终止保证范围内。
 
 > 此声明把「类型检查终止」从工程假设提升为**规范承诺**，对齐 SPARK/Rust 的 decidability 取向（synthesis §5 第二轮「borrow checker 无 soundness 声明」的同层问题，本 RFC 先解决类型推断层）。
 
@@ -222,7 +224,7 @@ call := "::" type_args "(" args? ")" | "(" args? ")"     // 纯后缀；嵌入 �
 4. **导入作用域**（`import`/`from import` 的 public item + `as` 别名，§12.2）；
 5. **`std.core`**（自动加载，§84 #9）。
 
-**命名空间**：**类型命名空间**（`type`/`struct`/`enum`/`interface`/`trait`/`error`/`actor`/`agent`）与**值命名空间**（`fn`/`let`/`const`/`field`）**分离**——`type X` 与 `fn X` 不冲突（同名合法，按上下文分派）。`module`/`package` 名在两者均可引用（路径前缀）。
+**命名空间**：**类型命名空间**（`type`/`struct`/`enum`/`interface`/`trait`/`error`/`actor`/`agent`）与**值命名空间**（`fn`/`let`/`const`/`field`）**分离**——`type X` 与 `fn X` 不冲突（同名合法，按上下文分派）。`module`/`package` 名在两者均可引用（路径前缀）。**enum variant 的命名空间归属**：variant 属其 enum 类型在类型命名空间下的**子作用域**（`Color.Red` = 类型 `Color` 的成员 `Red`）；裸 variant 名（`Red`）仅在 enum 自身作用域内直接可解析，或经 `use Color::{Red, Green}` 显式导入后于当前作用域可用（variant 构造 `Red(args)` 与 variant 类型引用按上文 `Name(args)` 消歧）。
 
 **简单名 `ident` 解析**：
 
@@ -241,14 +243,15 @@ call := "::" type_args "(" args? ")" | "(" args? ")"     // 纯后缀；嵌入 �
 3. `.c` 递归同上；
 4. 查无 = `UnresolvedMember`。
 
-**`call` 形 `Name(args)` 类别消歧**（填补 §89 #2/§92 #2 引用的「名字解析消歧」）：
+**`Name(args)` 与 `Name{...}` 的类别消歧**（填补 §89 #2/§92 #2 引用的「名字解析消歧」）——**括号形 `Name(args)` 与花括号形 `Name{...}` 是不同产生式**（§27：`struct_init := ident "{" (ident ":" expr)* "}"` 为**花括号形**、属 `primary`；`call` 为**括号形**后缀）。消歧按**文法形态 + `Name` 解析结果**双重决定：
 
-`Name` 解析结果决定 `Name(args)` 的语义：
-- **函数** → 函数调用；
-- **类型名** → 若 `args` 为 `ident: expr` 形 → `struct_init`（§27 struct_init）；若 `args` 为单 `expr` → 约束类型构造 `T(expr)`（§15.4/§92 #2，零成本转型）；
-- **enum variant**（含路径 `Color.Red(args)`）→ variant 构造；
-- **类型名 + 泛型** → 泛型实例化（`List<int>`，type 产生式 §27）；
-- 歧义（同名既函数又类型）→ 按命名空间分离无冲突；同命名空间歧义 = 编译错误。
+- **`Name(args)`（括号形，`call` 后缀）**：
+  - `Name` 为**函数** → 函数调用 `f(args)`；
+  - `Name` 为**类型名** → 约束类型构造 `T(expr)`（§15.4 / §92 #2，零成本语义转型 + 运行期断言；单实参，违约 panic `ConstraintViolation`）。**括号形不用于 struct 构造**——struct 构造恒为花括号形（见下）。
+  - `Name` 为 **enum variant**（含路径 `Color.Red(args)`）→ 带载荷 variant 构造。
+- **`Name { f1: e1, ... }`（花括号形，`struct_init`）**：`Name` 为 **struct 类型名** → struct 构造（§27 `struct_init`）。求值序见 [RFC 0007](./0007-determinism-batch.md) §4（构造器书写序）。
+- **`Name<T>`（`<` 类型实参）**：`Name` 为类型名 → 泛型实例化（`List<int>`）——此为**类型表达式**、属 `type` 产生式而非 `call`（参见 §7 `<` 消歧）。
+- 歧义（同名既函数又类型）→ 按类型/值命名空间分离无冲突；同命名空间歧义 = 编译错误。
 
 **shadowing 细节**：内层 `let` 遮蔽外层 `let`/参数合法（warn 可配）；遮蔽导入合法 + warn（§12.2）；**类型名不可被值遮蔽**（命名空间分离）。
 
@@ -269,7 +272,7 @@ call := "::" type_args "(" args? ")" | "(" args? ")"     // 纯后缀；嵌入 �
 | §6 return-only 泛型显式 | §86 #7 | ✅ |
 | §7 方案 B 修改 `<T>` | §86 #7（**显式演进**，唯一例外） | ⚠️ 需决断 |
 | §8 类型/值命名空间分离 | §89 #2/§92 #2 名字消歧引用 | ✅ 填补 |
-| §8 struct_init vs T(expr) | §27 struct_init + §15.4 constraint 构造 | ✅ |
+| §8 `Name{...}`(struct_init 花括号) vs `Name(args)`(constraint/variant 括号) | §27 `struct_init := ident "{" ... "}"`（花括号形·primary）+ §15.4/§92 #2 `T(expr)`（括号形·call） | ✅ 形态分离（不混 call） |
 | 零新关键字 | §9（56 表）；`break`/`continue` 已在控制流类别（§83 #5 锁定） | ✅ 已核查含 |
 
 ---
@@ -278,7 +281,8 @@ call := "::" type_args "(" args? ")" | "(" args? ")"     // 纯后缀；嵌入 �
 
 | 本 RFC 内容 | 落地位置 | 性质 |
 |---|---|---|
-| §4 控制流体产生式 | §27 `stmt` 产生式展开（替换裸终结符） | 规范性（Part I 文法） |
+| §4 控制流体产生式（if/for/while/loop/break/continue） | §27 `stmt` 产生式展开（替换裸终结符） | 规范性（Part I 文法） |
+| §4 `parallel_for` / `parallel_reduce` | §27 `primary` 产生式（表达式位置，§87 #9；`let x = parallel for …` 经 expr 链派生） | 规范性（Part I 文法） |
 | §5 字面量词法 | §8.6 扩充 | 规范性（Part I 词法） |
 | §6 推断算法 + decidability | §15.2 扩充 | 规范性（Part I 类型系统） |
 | §7 `<` 消歧（方案 A/B） | §27 `call` 产生式 + §86 #7 示例（若 B） | 规范性（若 B 则含决断演进） |
