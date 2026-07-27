@@ -169,17 +169,17 @@ cast_expr := unary ("as" type)*         // x as int / x as float32 as f64（链�
 
 | 转换 | 语义 |
 |---|---|
-| 整数扩宽（`int8` → `int16` → `int32` → `int64`） | 值不变，零成本（符号扩展） |
-| 整数收窄（`int64` → `int8`） | **截断低位**（保留低 N 位）——定义行为，非 UB |
+| 同符号整数扩宽（`int8` → `int16` → `int32` → `int64`；`uint8` → `uint16` → `uint32` → `uint64`） | 值不变，零成本（**按源符号位扩展**：有符号 sign-extend、无符号 zero-extend） |
+| 同符号整数收窄（`int64` → `int8`；`uint64` → `uint8`） | **截断低位**（保留低 N 位）——定义行为，非 UB（截断与符号无关，有 / 无符号同规则） |
 | 有符号 ↔ 无符号（同宽度） | 位模式重解释（`int as uint` = 同 bit pattern 重读） |
 | 符号 + 宽度同时变化（如 `int8 as uint16`、`uint32 as int8`） | **先按源符号扩展/截断到目标宽度，再按目标符号位重解释**（定义行为）。例：`int8` 值 `-1`（位 `0xFF`）`as uint16` → 符号扩展为 `0xFFFF` → 重解释为 `65535`（对齐 Rust `as`）；`uint8` 值 `255` `as int16` → 零扩展为 `0x00FF` → `255` |
-| `float` → 整数 | **saturating**：NaN → 0；`x < INT_MIN` → `INT_MIN`；`x > INT_MAX` → `INT_MAX`；否则**向零截断**（trunc）。对齐 Rust `as` + WebAssembly `trunc_sat`，**永不 UB** |
+| `float` → 整数 | **saturating**（饱和界按目标类型 `T` 的极值，**非**写死有符号 `INT_MIN`/`INT_MAX`）：NaN → 0；`x < T::MIN` → `T::MIN`；`x > T::MAX` → `T::MAX`；否则**向零截断**（trunc）。对**有符号**目标 `T::MIN`/`T::MAX` = 该宽度的有符号极值（如 `int8`: −128/127）；对**无符号**目标 **`T::MIN` = 0**（负浮点饱和到 0，如 `(-1.5) as uint8 = 0`）、**`T::MAX` = 2^N−1**（如 `300.0 as uint8 = 255`、`1e300 as uint64 = UINT64_MAX = 2^64−1`）。对齐 Rust `as` + WebAssembly `trunc_sat`（有符号 / 无符号变体），**永不 UB** |
 | 整数 → `float` | 精确（小整数）或 IEEE 754 round-to-nearest（大整数失精度，定义行为） |
 | `float32` ↔ `float64` | 精确（f32→f64）或 round-to-nearest（f64→f32） |
 | `bool` ↔ 数值 | **禁止**（编译错误）——避免 C 的隐式 bool 真值陷阱。`if` 为语句（§27）、不产出值，故 `(if b 1 else 0)` **非合法 AILang**；需数值化时用 std.core 方法 `b.to_int()`（`true→1` / `false→0`），或在函数体内用 `match` |
 | `char` ↔ 整数（任意宽度/符号） | `char as <整数类型>` = Unicode 标量值（零扩展到目标宽度；目标过窄则按整数收窄规则截断，定义行为）；`<整数类型> as char` 取值须为合法标量值（U+0000–U+10FFFF，非 surrogate），否则 panic `InvalidCodePoint`（签名类型负值必失败） |
 
-> **合法转换集为封闭集合**：`as` **仅**支持上表所列转换（基础数值类型之间、与 `char` / `bool` 之间）；所有其他 `as` 转换（含 `char` ↔ `float`、enum 判别值、`raw_pointer<T>` ↔ `raw_pointer<U>` / ↔ 整数、struct / `Optional` ↔ 数值等）均为**编译错误**。`raw_pointer` 相关 cast 属 unsafe 域（§25.1 / §90 #4），不入本表——闭合「安全代码永不 UB」的 soundness 论证（表外无未定义转换）。
+> **合法转换集为封闭集合**：`as` **仅**支持上表所列转换（基础数值类型之间、与 `char` / `bool` 之间）；所有其他 `as` 转换（含 `char` ↔ `float`、enum 判别值、`raw_pointer<T>` ↔ `raw_pointer<U>` / ↔ 整数、struct / `Optional` ↔ 数值等）均为**编译错误**。**`byte` 亦不在此封闭集**——`byte` 为独立基础类型（§15.1，非 `int8`/`uint8` 别名、无符号性声明，§77 仅作 codegen i8 signless 映射、不构成语言层符号裁定），其与数值类型的转换（`int as byte` / `byte as int` / `float as byte` 等）**当前为编译错误**，须待 `byte` 符号性裁定后由独立 RFC 定义（开放问题 #7）；闭合「表外无未定义转换」的 soundness 论证。`raw_pointer` 相关 cast 属 unsafe 域（§25.1 / §90 #4），不入本表——闭合「安全代码永不 UB」的 soundness 论证（表外无未定义转换）。
 
 **设计说明**：
 
@@ -270,7 +270,9 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 | §6 Hash<K> + Eq<K> | §35 contains（已用 Eq<T>）/ §86 #8 Eq 解糖 | ✅ |
 | §6 Map 迭代产出 (K,V) | §15.9 元组 / §27 map_lit | ✅ |
 | §7 `as` 复用关键字 | §9 模块类别含 `as`（56 之一） | ✅ 零新关键字 |
-| §7 float→int saturating | §90 #1 永不 UB + RFC 0005 §6 | ✅ |
+| §7 float→int saturating（饱和界按目标 `T::MIN`/`T::MAX`，有符号/无符号皆闭合） | §90 #1 永不 UB + RFC 0005 §6 | ✅ 无符号目标 `T::MIN`=0 / `T::MAX`=2^N−1（如 `(-1.5) as uint8=0`、`1e300 as uint64=UINT64_MAX`），对齐 Rust `as` + WASM `trunc_sat` 有/无符号变体 |
+| §7 整数扩宽/收窄按源符号位扩展（有符号 sign-extend / 无符号 zero-extend） | §15.1 整数类型族（有符号 int8–int64 / 无符号 uint8–uint64） | ✅ 消除「uint 扩宽误用符号扩展」缺陷（`uint8 200 as uint16`=200，非 65480）；收窄与符号无关 |
+| §7 `byte` 排除在 `as` 封闭集外（编译错误） | §15.1 byte 独立基础类型（非 int8/uint8 别名）/ §77 i8 signless | ✅ 符号性未定时不在 `as` 表擅自裁断（开放问题 #7）；soundness 闭合（表外无未定义转换） |
 | §7 `as` 位置消歧 | §12 import `as`（语句位）/ 表达式位 | ✅ 无冲突 |
 | §8 length 字节 | §36 length 返回 int + RFC 0006 §5 char_lit | ✅ |
 | §8 char 位复制 Copy | §18.4 三分类（追加 char，同 byte） | ✅ |
@@ -303,6 +305,7 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 4. **无效 UTF-8 迭代行为**——§8 声明 `string` 维持有效 UTF-8 不变量（构造即校验），故 `for ch in s` / `char_count()` 正常路径永不遇无效字节；`InvalidUtf8` panic 仅作该不变量的**防御性违约 panic**（已收敛为 panic，非两选一选项）。若未来引入非校验构造路径（如 unsafe 字节缓冲直接重解释），再议其解码失败语义。
 5. **char 与整数互转**——§7 `uint as char` 非法标量 panic；是否提供 `char::from_uint_safe() -> Optional<char>` 非 panic 路径，留 std API 设计。
 6. **Hash seed：运行期确定性 vs HashDoS 抗性**——§6.1 seed 运行期每进程生成（对齐 Rust `RandomState`，二进制可复现、与构建可复现性**无冲突**）；开放的是**运行期确定性** trade-off：是否为测试 / 回放提供 fixed-seed 运行期模式（同程序跨运行同序）。归属 `std.collections` / 后续 RFC（不再指向已收尾的 P0-4——后者未承接 Hasher seed）。
+7. **`byte` 与数值类型的 cast 归属**——§7 当前把 `byte` 排除在 `as` 封闭集外（编译错误）。`byte` 为独立基础类型、符号性未声明（§15.1 / §77 codegen i8 signless），是否裁定为视同 `uint8`（无符号）或 `int8`（有符号）参与整数扩宽 / 收窄 / float→byte saturating、或维持编译错误改经 std 方法（如 `byte::from_int_safe()`），留独立 RFC。本 RFC 在该裁定前**不**把 `byte` 入 `as` 表（避免在符号性未定时擅自裁断 saturating 界）。
 
 ---
 
