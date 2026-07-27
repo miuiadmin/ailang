@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4/pass-5/pass-6/pass-7/pass-8，pass-6 报 5 confirmed [0H/2M/3L] 并已全部修正；pass-7 报 4 confirmed [0H/0M/4L]（§4 透明包装行「按值继承字段 ABI」对 `transparent+align(N)` 过强 + §7.2 缺该组合行 / §11#2 provenance 提交清单「仅源码+ail.lock」欠 §31 完整源码包 / §12 RFC 0007 回引同步注 stale——同步已 pass-19/9b315e2 落地）并已全部修正；**pass-8 报 4 confirmed [0H/0M/4L]**（§6.2 `CString.as_cstr` 内联 fn 缺 block 违 §27 line 1486 / §13 §7.2 组合合法性表计数「8 行=5+2+1」未随 pass-7 新增 transparent+align(N) 行同步为「9 行=5+3+1」——selfconsistency+frozen-boundary+glossary 三维度同根命中）已全部修正、待 pass-9 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4/pass-5/pass-6/pass-7/pass-8，pass-6 报 5 confirmed [0H/2M/3L] 并已全部修正；pass-7 报 4 confirmed [0H/0M/4L]（§4 透明包装行「按值继承字段 ABI」对 `transparent+align(N)` 过强 + §7.2 缺该组合行 / §11#2 provenance 提交清单「仅源码+ail.lock」欠 §31 完整源码包 / §12 RFC 0007 回引同步注 stale——同步已 pass-19/9b315e2 落地）并已全部修正；**pass-8 报 4 confirmed [0H/0M/4L]**（§6.2 `CString.as_cstr` 内联 fn 缺 block 违 §27 line 1486 / §13 §7.2 组合合法性表计数「8 行=5+2+1」未随 pass-7 新增 transparent+align(N) 行同步为「9 行=5+3+1」——selfconsistency+frozen-boundary+glossary 三维度同根命中）已全部修正；**pass-9 报 1 confirmed [0H/0M/1L]**（§6.2 `CString.as_cstr` 内联 fn 体用尾表达式返回〔无 `return`〕违 §27 line 1510 `block := "{" stmt* "}"` 无尾表达式槽 + line 1535 `primary` 不含 block + 冻结全部非 void 函数体用显式 return〔裸 `struct_init` 非 `stmt`、须以 `return` 语句产出值〕——pass-8 补 block 时遗留、pass-9 捕获）→ 加显式 `return CStr { ptr: self.buf }`，已全部修正、待 pass-10 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结语义决断**：§1–§94 语义、56 关键字、110 决议均不变。**两处显式扩展**：① §27 `layout` 产生式体扩展（`layout(C)` → 可组合 `layout(C + packed + align(N))`，类比 RFC 0006 对 `stmt`/`call` 的产生式体扩展、属 Authorized RFC 演进通道 RFC 0005 §9）；② `extern` 的 `ident` 收紧为封闭 ABI 集合（名字解析校验、文法不变）。`CStr`/`CString` 为 std.core 类型（落 §34，与 `panic`/`assert` 同模块、默认加载免 import）、`size_of`/`align_of`/`offset_of` 为编译期内征（同 `panic`/`assert` 先例）、`ail.lock` 为工具链文件——均非关键字、零新关键字）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-4**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第五/末优先级；§4 交叉印证 #6「FFI 封送/ABI 未规范，printf 示例自触 UB」+ #11「供应链 lockfile/签名/可复现构建缺失」；[`deep-review-2026-07.md`](../research/deep-review-2026-07.md) §6.1 包供应链 1.5 全规范最薄弱环 + §5.4 可观测维度 FFI UB 风险；[`spec-maturity-2026-07.md`](../research/spec-maturity-2026-07.md) §4.4 ABI/FFI 2.0 全规范最薄弱层 + §4.6 工具链 2.5）|
@@ -144,8 +144,8 @@ layout(transparent) struct CStr {
 struct CString {
     buf: raw_pointer<byte>,         // 拥有版（drop 释放分配）；非 FFI-safe（内部表示，不经 extern）
     len: uint64,
-    fn as_cstr(borrow self) -> CStr {   // 借用：返回 CStr（Copy，按值；指向 CString 的 NUL 终结缓冲）——§27 内联 fn 带 block、冻结合规
-        CStr { ptr: self.buf }          // layout(transparent) 单字段构造（§27 field-init 字面量语法）——借用 self.buf、返回指向 NUL 终结缓冲的 CStr
+    fn as_cstr(borrow self) -> CStr {   // 借用：返回 CStr（Copy，按值；指向 CString 的 NUL 终结缓冲）——§27 内联 fn 带 block、非 void 函数体显式 `return`（§27 line 1510 `block := "{" stmt* "}"` 无尾表达式槽、line 1535 `primary` 不含 block、冻结全部非 void 函数体用显式 return）、冻结合规
+        return CStr { ptr: self.buf }   // layout(transparent) 单字段构造（§27 field-init 字面量语法）——显式 return（裸 `struct_init` 非 `stmt`，须以 return 语句形式产出值）借用 self.buf、返回指向 NUL 终结缓冲的 CStr
     }
 }
 ```
@@ -480,6 +480,10 @@ integrity = "sha256-..."
 
 - **F2（L，struct-inline-fn-body）**：§6.2 `struct CString` 的内联 `fn as_cstr(borrow self) -> CStr` 仅有签名无 body——冻结 §27 line 1486 `struct := layout? "struct" ... "{" (field | fn)* "}"` 中 `fn` **须带 block**（函数体）、`fn_sig`（无 body）仅 interface/trait 用、struct 不接 `fn_sig`。pass-5 把 `as_cstr` 移入 struct CString 作为内联 fn 以合规 §27、但漏写 block、实仍违 §27。修正（option ①）：`as_cstr` 补 block——`fn as_cstr(borrow self) -> CStr { CStr { ptr: self.buf } }`（§27 field-init 字面量构造 `layout(transparent)` 单字段 `CStr`、借用 `self.buf`、返回指向 NUL 终结缓冲的 CStr）；`CString` 为真实 user struct（非 `#[lang] string` 的内建非 struct）、§27 内联 fn 通道合法、无需 §83 #2 impl 块依赖。
 - **F1 + F3 + F4（L×3，selfconsistency / frozen-boundary / glossary 三维度同根——§13 §7.2 组合合法性表计数 stale）**：pass-7 给 §7.2 表新增 `transparent + align(N)` 组合行（表遂为 9 行）、但 §13 自洽核查表 line 376 仍记「组合合法性表 8 行 = 5 AIL8003 + 2 合法 + 1 AIL1xxx」（未计入新增行、亦未把 transparent+align(N) 列入合法清单）。三维度从同一 stale 计数各自命中。修正：§13 line 376 改「9 行 = 5 AIL8003（transparent 单字段 / align(N) 2 的幂+下界 / packed+align(N) 互斥 / packed+transparent 互斥 / 重复标识）+ **3 合法**（C+packed / C+transparent 冗余告警 / **transparent+align(N)**——pass-7 新增、合法但 ABI 继承语义被 align 修正）+ 1 AIL1xxx（layout 仅 struct）」——计数与 §7.2 实际行数同步、合法清单枚举 transparent+align(N)。
+
+**pass-9 报 0H / 0M / 1L = 1 条 confirmed**（default-refute workflow，refuted 0、共 raw 1），已修正、待 pass-10 复验：
+
+- **F1（L，string-ffi-marshalling-soundness）**：§6.2 `struct CString` 内联 `fn as_cstr(borrow self) -> CStr` 的 block 体为尾表达式 `CStr { ptr: self.buf }`（无 `return`）——违冻结 §27 line 1510 `block := "{" stmt* "}"`（block 仅含语句、**无**尾表达式槽）+ line 1535 `primary` 不含 block（block 不能作表达式产出值）+ 冻结全部非 void 函数体用显式 `return expr`（如 line 58 `fn add(...) -> int { return a + b }`）；且裸 `struct_init` 表达式 `CStr { ptr: self.buf }` 非 `stmt`（`stmt := "let" ident ... "=" expr` / `return expr?`）、须以 `return` 语句形式方可产出函数返回值。pass-8 补 block 时（见上 F2 record）写成尾表达式、遗留语法不合规、pass-9 捕获。修正：§6.2 line 147-148 加显式 `return`——`fn as_cstr(borrow self) -> CStr { return CStr { ptr: self.buf } }`（对齐冻结非 void 函数体惯例）。若 AILang 未来引入 Rust 式尾表达式返回，须经独立 RFC 扩展 §27 `block` 产生式 + `primary` 含 block，本 RFC 不预设该未规范特性。
 
 > 本批是「与外部世界交互的信任与确定性」主题，验证重心在**FFI 安全性（白名单是否真闭合、printf UB 是否真消除）与供应链 soundness（lockfile 是否真复现、信任链是否真闭合）**，比 0006 形式化、0007 确定性、0008 可观测更偏「跨边界正确性 + 攻击面闭合」。
 
