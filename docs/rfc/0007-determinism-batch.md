@@ -91,7 +91,7 @@ synthesis §4 的**交叉印证矩阵**是全场可信度最高的必修项—�
 
 1. **局部变量（locals）**：作用域内的局部变量按**逆声明序** drop（后声明的先释放——栈序，LIFO）。
 2. **临时值**：表达式求值产生的临时值（如 `f(g(), h())` 的中间结果）按**构造逆序** drop。
-3. **调用实参临时值**：实参按左到右求值（§4）后，彼此按求值逆序 drop（即 `h()` 先于 `g()` drop）；drop **时点**由 #6 的完整表达式（full expression）作用域统一裁定（**不**在函数返回后立即 drop——与 #6 / #7 对齐 Rust Reference 的 full-expression lifetime 一致）。
+3. **调用实参临时值**：实参按左到右求值（§4）后，**未被 move 的**实参临时值彼此按求值逆序 drop（即 `h()` 先于 `g()` drop——此例以非 move 实参为示）；drop **时点**由 #6 的完整表达式（full expression）作用域统一裁定。**例外（与 #6 move 进 local 对称）**：若实参被 **move 进被调函数**（move 传递模式，含默认 move §18.3；§27 文法 `mode` 省略即 move、`borrow T` 形参方自动借用），则该实参**不构成调用者临时值**——所有权在调用时即转移给被调形参（形参即被调函数的参数 local，§88 #3），作为其参数 locals 按**逆声明序 #1** 在**被调函数作用域末**（≈返回时）drop，调用者侧无 drop 义务（强行 drop 即 use-after-move / double-drop，违 §18.3）。故本条逆序 drop 仅适用于**未被 move** 的实参临时值（copy 传递模式的副本、`borrow` / `borrow_mut` 传递的借用临时值），其 drop 时点为完整表达式末（#6）。（Rust Reference 的 full-expression temporary lifetime 同样不覆盖被 move 走的实参——moved-out slot 无 drop glue、由被调函数 drop；本条对齐之。）
 4. **混合序**：同一作用域内，locals 与临时值统一按**析构时点逆序** drop（后构造 / 后声明的先释放）；临时值的「析构时点 / 作用域」由 #6 的 lifetime 规则确定（语句级 vs 块级）。
 5. **panic 展开**：同序 drop（§89 #3 已有，保持）。
 6. **临时值作用域（lifetime）**：临时值在包围它的**完整表达式**（full expression——语句末 `;` 或最外层表达式边界）结束时 drop（对齐 Rust Reference / C++ temporary lifetime）。**例外**：若临时值被 `let` 初始化器 **move 进** local（直接成为该 local 的值），则**不构成临时值**（归入该 local 的逆声明序 #1）。**裸表达式语句**（§27 `stmt := … | expr`，如 `foo();` 丢弃返回值、`a + b;`）产生的非实参临时值，在**该语句末** drop（语句级作用域，不进入块级 locals 的混合序）。此规则给 #2 / #4 的「析构时点」提供确定作用域，使混合序可一致应用。
@@ -120,7 +120,7 @@ trait Hash {
 - **基础类型实现**：`int`/`uint`/`bool`/`float`/`byte`/`char` 直接实现 `Hash`（值经 `Hasher` 写入）；`string` 实现 `Hash`（UTF-8 字节序列）。**`float` 的 `Hash` 须与其 `Eq` 一致**（守住 `a == b ⟹ hash(a) == hash(b)` 不变量）：IEEE 754 下 `+0.0 == -0.0` 为真（§90 #2），故 `float` 的 `Hash` **必须**把 `+0.0` 与 `-0.0` 归一为同一哈希（按数值而非位模式）；`NaN ≠ NaN`（§90 #2），其相等前提为假、对 `Hash` 不施加一致性约束（实现可按位模式或固定值，因 `Eq` 已排除其相等匹配，查找 NaN 键永不命中）。
 - **语义类型**：透明别名（`kind: alias`）继承 base 的 `Hash`（透明别名不改变类型身份，按 §15.3 与 base 同一）；名义 semantic（`kind: semantic`，§15.3）的 `Hash` **不自动继承**——`Hash` 是**运算 trait**（带方法 `fn hash(...)`），属 §15.3 / §92 #7 锁定的「marker vs 运算」二分中的**运算类**，与 `Eq` / `Ord` 同类，**须显式实现**（v0.3 impl 语法落地后），保持 newtype 语义安全与 `Hash`/`Eq` 对称（二者皆须显式实现，避免「`Eq` 显式而 `Hash` 隐式继承」导致二者可能不一致 → 破坏 `a == b ⟹ hash(a) == hash(b)` 不变量）。唯一自动经 base 的例外是 `Display`（§15.3 已锁定的封闭例外集，非运算 trait）。
 - **Map/Set 的 `K` / `T` 约束**：`Map<K, V>` 要求 `where { Hash<K>, Eq<K> }`；`Set<T>` 要求 `where { Hash<T>, Eq<T> }`（插入 / 查找需哈希 + 相等）。
-- `Hasher` 为 std.core 类型（默认 SipHash-1-3，对齐 Rust HashMap 默认；**seed 运行期每进程生成**——对齐 Rust `RandomState`，二进制可复现（seed 不烘焙进编译产物，故与 RFC 0009 可复现构建无冲突）；seed 随机化以抗 HashDoS）。
+- `Hasher` 为 std.core 类型（默认 SipHash-1-3，对齐 Rust HashMap 默认；**seed 运行期每进程生成**——对齐 Rust `RandomState`，以抗 HashDoS）。**注意**：seed 不烘焙进编译产物是**运行期安全属性**，与构建可复现性**正交**——seed 随机化会使编译器内部 set / Map 的迭代序**跨构建变化**，故与**字节级**可复现构建存在张力；该张力由 RFC 0009 §9.2 的「`.ailmeta` 数组字段**必须预先规范化排序后序列化**」规则闭合（与本 RFC §6.3 的 Map 迭代序显式未指定登记一致），**非**由「seed 不烘焙」闭合。
 
 ### 6.2 迭代方法
 
@@ -130,7 +130,7 @@ trait Hash {
 | `Map<K, V>` | `iter()` / `for (k, v) in map` | `(K, V)` 元组 |
 | `Set<T>` | `iter()` / `for x in set` | `T` |
 
-- for-in 经 `Iterator` trait（std.core lang item，§18.8 已暗示）。
+- for-in 经**语言层迭代**（§18.8 for-loop 编译期零成本展开为指针循环、无迭代器对象开销）；`Iterator` trait 的正式声明（若引入）随 `std.collections` 落地，**非** v0.3 std.core lang item（冻结规范 `Iterator` 零声明——§86 #5 lang item 列表 / §73 TypeDb `Builtin` / §18.8 均无之）。
 - Map 迭代产出 `(K, V)` 元组；解构 `for (k, v) in map`。
 
 ### 6.3 迭代序决断（核心）
@@ -195,12 +195,12 @@ cast_expr := unary ("as" type)*         // x as int / x as float32 as f64（链�
 
 **决断**：
 
-> **`string` 维持有效 UTF-8 不变量**（构造即校验）：`string` 值恒为合法 UTF-8 序列——构造期（字面量 / `string` 构造 / `byte`→`string` 转换）校验，非法字节输入为构造期错误或 panic `InvalidUtf8`。故下文 `iter` / `char_count` 等 UTF-8 解码型方法**正常路径永不遇无效字节**（`Eq` 为字节序 `memcmp`、非解码型方法，无解码失败路径、与 §8 #4 byte 序无关——不在此列）；§8.3 / 开放问题 #4 的 `InvalidUtf8` panic 退化为该不变量的**防御性违约 panic**（非正常运行路径）。
+> **`string` 维持有效 UTF-8 不变量**（构造即校验）：`string` 值恒为合法 UTF-8 序列——构造期（字面量 / `string` 构造）校验，非法字节输入为构造期错误或 panic `InvalidUtf8`（未来 `byte`→`string` 安全构造方法如 `from_utf8` **超出本最小包范围** §2.5——`byte` 亦不在 §7 cast 封闭集内、`byte as string` 当前为编译错误；该转换路径及其 UTF-8 校验由独立 std API 落地时承载）。故下文迭代 / `char_count` 等 UTF-8 解码型方法**正常路径永不遇无效字节**（`Eq` 为字节序 `memcmp`、非解码型方法，无解码失败路径、与 §8 #4 byte 序无关——不在此列）；§8 #3 / 开放问题 #4 的 `InvalidUtf8` panic 退化为该不变量的**防御性违约 panic**（非正常运行路径）。
 
 1. **`length()` = UTF-8 字节长度**（O(1)，直接取缓冲长度）——对齐 Rust `String::len()` / Go `len(string)`，性能优先。
    - 另提供 `char_count()` = Unicode 码点数（O(n) 遍历解码），供「字符数」语义需求。
 2. **引入 `char` 类型**（标准库类型，非关键字，类 `byte`）：Unicode 标量值（U+0000–U+10FFFF，4 字节 / `uint32` 存储，对齐 Rust `char`）；字面量 `'a'`（RFC 0006 §5 `char_lit` 已定义）。`char` 为**位复制 Copy**（同 `byte` / `int` / `uint` / `float` / `bool`，§18.4 三分类追加——定宽 4 字节、无所有权语义、按值拷贝）。
-3. **迭代**：`for ch in s` / `string.iter() -> Iterator<char>` 按 UTF-8 解码逐码点产出 `char`；因 `string` 维持有效 UTF-8 不变量（构造即校验，见上方引言），正常路径**永不遇无效字节**；一旦该不变量被违约（仅理论上 / 未来 unsafe 字节重解释路径），迭代立即 **panic `InvalidUtf8`**（防御性违约 panic，**不做** U+FFFD 替换、**不跳过**无效字节——与开篇引言、开放问题 #4 收敛态一致）。
+3. **迭代**：`for ch in s`（**语言层迭代**，§18.8 编译期零成本展开为指针循环、无迭代器对象开销）按 UTF-8 解码逐码点产出 `char`；因 `string` 维持有效 UTF-8 不变量（构造即校验，见上方引言），正常路径**永不遇无效字节**；一旦该不变量被违约（仅理论上 / 未来 unsafe 字节重解释路径），迭代立即 **panic `InvalidUtf8`**（防御性违约 panic，**不做** U+FFFD 替换、**不跳过**无效字节——与开篇引言、开放问题 #4 收敛态一致）。**显式 `.iter()` 方法及 `Iterator` trait 随 `std.collections` 落地**（非本最小包范畴 §2.5、亦非 v0.3 std.core lang item——冻结规范 `Iterator` 零声明，§18.8 的 for-loop 为编译期内建迭代、不依赖 Iterator trait）。
 4. **Eq 接地**：`string` 实现 `Eq`（`string == string` 经 `Eq.eq`，§86 #8 运算符解糖）——比较为 **UTF-8 字节序**（等价于码点序，因 UTF-8 编码保序）。
 
 **扩展后的 §36 方法表**（在现表基础上增补）：
@@ -209,7 +209,6 @@ cast_expr := unary ("as" type)*         // x as int / x as float32 as f64（链�
 |---|---|---|
 | `length` | `(borrow self) -> int`（字节长度，O(1)） | 语义明确 |
 | `char_count` | `(borrow self) -> int`（码点数，O(n)） | ✅ 新增 |
-| `iter` | `(borrow self) -> Iterator<char>` | ✅ 新增 |
 | `contains` / `starts_with` / `upper` / `lower` / `is_empty` / `append` | （现状不变） | — |
 
 **设计说明**：
@@ -217,6 +216,7 @@ cast_expr := unary ("as" type)*         // x as int / x as float32 as f64（链�
 - length=字节（O(1)）+ char_count=码点（O(n)）分离，让调用方按需选择（性能 vs 语义），避免「length 到底是字节还是字符」的歧义（synthesis #4 的核心困惑）。
 - `char` 为 Unicode 标量值（非字素 grapheme）——字素簇（`\r\n`、组合字符）留后续；最小包只到码点级。
 - Eq 字节序 = 码点序（UTF-8 保序性定理），故 `==` 语义无歧义。
+- **迭代经语言层 `for ch in s`**（§18.8 编译期内建、零迭代器对象开销），**不引入 `Iterator` trait**——显式 `.iter()` 方法与 `Iterator` trait 随 `std.collections` 落地（与 §6.3 的 `collect` / `sort` 同类推迟，保持最小包范围 §2.5 诚实；冻结规范 `Iterator` 零声明）。
 
 ---
 
