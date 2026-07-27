@@ -60,21 +60,23 @@ synthesis §4 的**交叉印证矩阵**是全场可信度最高的必修项—�
 | 产生式 | 求值序 |
 |---|---|
 | 二元 `a op b`（`+ - * / % == != < > <= >=`） | a 先，b 后 |
-| 赋值 `x = e` | 求 e（值），再写 x |
-| 复合赋值 `x op= e`（`+=` `-=`） | 求 x（读当前值）→ 求 e → 运算 → 写回 x |
+| 赋值 `x = e`（含位置 `a[i] = e` / `o.f = e`） | 先求值左值位置 `x` 的子表达式（接收者 / 索引 / 字段路径，左到右，如 `a[g()]` 中 `a`→`g()`），再求右值 e，最后写回**已解析的位置**（位置子表达式不重复求值）——与复合赋值一致（位置先于右值） |
+| 复合赋值 `x op= e`（`+=` `-=`） | 先求值左值位置 `x` 的子表达式（左到右）→ 读当前位置值 → 求 e → 运算 → 写回已解析位置 |
 | 调用 `f(a, b, c)` | f 先，再 a → b → c |
 | 成员 `a.b` | a 先 |
 | 下标 `a[i]` | a 先，i 后 |
 | 结构体构造 `T { f1: e1, f2: e2 }` | e1 → e2（声明序，与字段 Drop 序 §90 #5 一致） |
 | 列表 / Map 字面量 `[a, b]` / `[k1: v1, k2: v2]` | 元素左到右 |
-| `match e { ... }` | e 先，再选 arm 求值 |
 | `send` `h ! m` | h 先，m 后 |
 | `&&` / `\|\|` | 左先；右**条件性**求值（短路） |
+
+> **作用域**：本表覆盖**表达式产生式**（§27 `expr` 链的操作数）。控制流**语句**（`if`/`for`/`while`/`loop`/`match`/`return`/`throw`）的执行序属语句语义、见 §16（条件 / 迭代源 / scrutinee 先于体求值为常识序，非表达式求值序范畴）；`match` 的 scrutinee 作为**表达式**遵循本表（左到右），arm 选择与体执行属 §16。
 
 **设计说明**：
 
 - 左到右对齐 Java / C# / Go / Python / Rust 主流取向，最大化 AI 可预测性（AILang 核心卖点）。
-- 复合赋值 `x += e` 的「读 x → 求 e」序**仅在 x 与 e 有别名副作用时有意义**——但 AILang borrow 不逃逸（§18.5）、`borrow_mut` 独占，安全代码中 x 与 e 不可能别名同一可变位置，故此序在实践中无歧义（仍锁定以求完备）。
+- **位置子表达式副作用可观测**：赋值 / 复合赋值的左值位置子表达式（如 `a[g()] += f()` 中的 `g()`、`f()`）对程序副作用**完全可观测**，故「先位置、后右值」的序**必须**锁定（非「以求完备」的可有可无）。**别名论证**仅说明存储位置 `x` 与右值 `e` 不会经同一可变位置交互（borrow 不逃逸 §18.5、`borrow_mut` 独占），故无需为数据冒险额外规定，但**不**消除位置子表达式自身的副作用求值序。
+- **赋值表达式产 `void`（unit）**：`x = e` 作为表达式求值为 `void`（对齐 Rust，区别于 C 的「yield 被赋值」）。故赋值链 `a = b = c` 因内层 `(b = c)` 为 `void`、与外层赋值的右值类型不匹配 → **编译错误**（语法可解析、类型检查拒绝）；文法 `assign` 的右递归虽允许链式解析，但类型规则排除之。赋值作为语句（`x = e;`）是惯用法。
 - 此决断把 RFC 0005 §6「求值顺序未指定」**收紧为定义行为**（§10 交叉更新）。
 
 ---
@@ -112,7 +114,7 @@ trait Hash {
 ```
 
 - **基础类型实现**：`int`/`uint`/`bool`/`float`/`byte`/`char` 直接实现 `Hash`（值经 `Hasher` 写入）；`string` 实现 `Hash`（UTF-8 字节序列）。
-- **语义类型**：透明别名（`kind: alias`）继承 base 的 `Hash`；名义 semantic（`kind: semantic`，§15.3）**默认继承** base 的 `Hash`（底层值同），**可显式覆写**。
+- **语义类型**：透明别名（`kind: alias`）继承 base 的 `Hash`（透明别名不改变类型身份，按 §15.3 与 base 同一）；名义 semantic（`kind: semantic`，§15.3）的 `Hash` **不自动继承**——`Hash` 是**运算 trait**（带方法 `fn hash(...)`），属 §15.3 / §92 #7 锁定的「marker vs 运算」二分中的**运算类**，与 `Eq` / `Ord` 同类，**须显式实现**（v0.3 impl 语法落地后），保持 newtype 语义安全与 `Hash`/`Eq` 对称（二者皆须显式实现，避免「`Eq` 显式而 `Hash` 隐式继承」导致二者可能不一致 → 破坏 `a == b ⟹ hash(a) == hash(b)` 不变量）。唯一自动经 base 的例外是 `Display`（§15.3 已锁定的封闭例外集，非运算 trait）。
 - **Map/Set 的 `K` / `T` 约束**：`Map<K, V>` 要求 `where { Hash<K>, Eq<K> }`；`Set<T>` 要求 `where { Hash<T>, Eq<T> }`（插入 / 查找需哈希 + 相等）。
 - `Hasher` 为 std.core 类型（默认 SipHash-1-3，对齐 Rust HashMap 默认；seed 随机化以抗 HashDoS）。
 
@@ -187,7 +189,7 @@ cast_expr := postfix "as" type          // x as int / x as float32 / x as uint8
 
 1. **`length()` = UTF-8 字节长度**（O(1)，直接取缓冲长度）——对齐 Rust `String::len()` / Go `len(string)`，性能优先。
    - 另提供 `char_count()` = Unicode 码点数（O(n) 遍历解码），供「字符数」语义需求。
-2. **引入 `char` 类型**（标准库类型，非关键字，类 `byte`）：Unicode 标量值（U+0000–U+10FFFF，4 字节 / `uint32` 存储，对齐 Rust `char`）；字面量 `'a'`（RFC 0006 §5 `char_lit` 已定义）。
+2. **引入 `char` 类型**（标准库类型，非关键字，类 `byte`）：Unicode 标量值（U+0000–U+10FFFF，4 字节 / `uint32` 存储，对齐 Rust `char`）；字面量 `'a'`（RFC 0006 §5 `char_lit` 已定义）。`char` 为**位复制 Copy**（同 `byte` / `int` / `uint` / `float` / `bool`，§18.4 三分类追加——定宽 4 字节、无所有权语义、按值拷贝）。
 3. **迭代**：`for ch in s` 迭代 `char`（UTF-8 解码，逐码点，跳过无效字节序列 → panic `InvalidUtf8` 或替换 U+FFFD，见开放问题 #4）；`string.iter() -> Iterator<char>`。
 4. **Eq 接地**：`string` 实现 `Eq`（`string == string` 经 `Eq.eq`，§86 #8 运算符解糖）——比较为 **UTF-8 字节序**（等价于码点序，因 UTF-8 编码保序）。
 
@@ -251,15 +253,18 @@ debug-assertions = false   # 默认关；可配 true 保留契约断言（换性
 | 本 RFC 条款 | 对齐的既有规范 | 自洽性 |
 |---|---|---|
 | §4 左到右 + `&&`/`\|\|` 短路 | §11 运算符表（短路已注） | ✅ |
+| §4 赋值左值位置子表达式先求值 + 产 `void` | 与复合赋值一致（位置先于右值）；链 `a=b=c` 类型拒绝 | ✅ 自洽（不重复求值位置） |
 | §4 结构体构造声明序 | §90 #5 字段 Drop 声明序 | ✅ 一致 |
 | §5 locals 逆声明序 | §90 #5 字段声明序（作用域不同，不矛盾） | ✅ |
 | §5 panic 同序 drop | §89 #3 panic 展开 | ✅ |
+| §6.1 名义 semantic 的 Hash 不自动继承 | §15.3 / §92 #7 marker-vs-operational 二分（Hash=运算 trait，同 Eq） | ✅ 对齐（消除与 §15.3 矛盾 + Hash/Eq 对称） |
 | §6 Hash<K> + Eq<K> | §35 contains（已用 Eq<T>）/ §86 #8 Eq 解糖 | ✅ |
 | §6 Map 迭代产出 (K,V) | §15.9 元组 / §27 map_lit | ✅ |
 | §7 `as` 复用关键字 | §9 模块类别含 `as`（56 之一） | ✅ 零新关键字 |
 | §7 float→int saturating | §90 #1 永不 UB + RFC 0005 §6 | ✅ |
 | §7 `as` 位置消歧 | §12 import `as`（语句位）/ 表达式位 | ✅ 无冲突 |
 | §8 length 字节 | §36 length 返回 int + RFC 0006 §5 char_lit | ✅ |
+| §8 char 位复制 Copy | §18.4 三分类（追加 char，同 byte） | ✅ |
 | §8 string Eq 字节序 | §86 #8 == 解糖 Eq.eq | ✅ |
 | §9 overflow-checks | §90 #1 + RFC 0005 §7 | ✅ |
 | 零新关键字 | §9（56）；`as` 已含、`char` 为类型词非关键字 | ✅ 已核查 |
@@ -274,7 +279,7 @@ debug-assertions = false   # 默认关；可配 true 保留契约断言（换性
 | §5 Drop 扩展 | §18.7 扩展 + §90 #5 补注 | 规范性 |
 | §6 Hash trait + 迭代 + 序 | §35 扩展 + §34 std.core 加 Hash trait | 规范性 |
 | §7 `as` 转换算子 | §11 表 + §15.1 转换语义 | 规范性 |
-| §8 字符串最小包 + char | §36 扩展 + §15.1 加 char 类型 | 规范性 |
+| §8 字符串最小包 + char | §36 扩展 + §15.1 加 char 类型 + **§18.4 位复制 Copy 枚举追加 `char`**（同 `int`/`uint`/`float`/`bool`/`byte`；§74.1 Copy 摘要同步） | 规范性 |
 | §9 build profile 配置 | §30.1 ail.toml [profile] | 规范性（工具链） |
 | §10 交叉更新 | RFC 0005 §6 + 附录 B #7 关闭 | 同步 |
 

@@ -59,11 +59,11 @@ spec-maturity 第二轮把 AILang 的形式化层评为**最薄弱单点之一**
 if_stmt        := "if" expr block ("else" (if_stmt | block))?        // 条件 expr 须 bool（§15）；else-if 链
 for_stmt       := "for" pattern "in" expr block                       // pattern 复用 §27 pattern（含 _）；expr 须可迭代（List/Array/Set/Map/Iterator）
 while_stmt     := "while" expr block                                  // 条件 expr 须 bool
-loop_stmt      := "loop" block                                        // 无条件循环；体类型 never（§15.1 never）；break/return 出口
-break_stmt     := "break" expr?                                       // 跳出 loop/for；expr 为 loop 表达式值（可选）
+loop_stmt      := "loop" block                                        // 无条件循环（语句）；体类型 never（§15.1）；break/return 为控制流出口
+break_stmt     := "break"                                             // 跳出 loop/for（无值；loop 非 value 表达式，对齐 §15.1）
 continue_stmt  := "continue"                                          // 跳至下一次迭代
-parallel_for   := "parallel" "for" pattern "in" expr block            // 表达式，返回 List<R>（§87 #9）；body 须返回 R、pure 或仅 io.read
-parallel_reduce:= "parallel" "reduce" "(" expr "," expr ")" block     // (op, data) { ... }；op 须结合律（§87 #9）
+parallel_for   := "parallel" "for" pattern "in" expr block            // **primary 级表达式**（并入 §27 primary），返回 List<R>（§87 #9）；body 须返回 R、pure 或仅 io.read
+parallel_reduce:= "parallel" "reduce" "(" expr "," expr ")" arm_body  // **primary 级表达式**；body 用 arm_body（§27，兼容 { x -> f(x) } 与纯 block）；op 形式见设计说明
 ```
 
 **`stmt` 产生式更新**（替换原裸终结符行）：
@@ -77,7 +77,6 @@ stmt := "let" ident (":" type)? "=" expr
      |  break_stmt | continue_stmt
      |  match | select
      |  "spawn" ("detached")? "actor"? ( postfix | block ) | "cancel" expr
-     |  parallel_for | parallel_reduce
      |  try_catch
      |  "unsafe" block | expr
 ```
@@ -86,8 +85,8 @@ stmt := "let" ident (":" type)? "=" expr
 
 - `if_stmt` 的 `expr` 条件**必须**为 `bool`（§15），无 truthy 隐式转换（对齐 AILang 无隐式转换原则，唯一例外是 `string + Display` §11）。
 - `for` 的迭代源 `expr` 须为可迭代类型（`List`/`Array`/`Set`/`Map`/`Iterator` trait）；`Map` 迭代序见 §6/RFC 后续 P0-2（当前未指定，RFC 0005 §13 已登记）。
-- `loop_stmt` 体类型为 `never`（§15.1）——仅 `break expr` 或 `return` 能产出非 never 值，故 `loop` 作表达式时类型 = break 值类型。
-- `parallel_for` / `parallel_reduce` 按 §87 #9 为**表达式**（返回 `List<R>`）；此处同时纳入 `stmt`（表达式语句位置可用），与 `expr` 语句分支一致。
+- `loop_stmt` 是**语句**（非 value 表达式），体类型为 `never`（§15.1：`loop` 表达式类型为 `never`/⊥）；`break` / `return` 是控制流出口（**不携带值**），`loop` 不产出值。这与冻结 §15.1 完全一致、**非语义演进**——`loop` 未加入 §27 `expr` 产生式，故 `let x = loop { … }` 不可达（loop 仅语句位置合法）。若未来要让 `loop` 产出值（`break expr` + loop 类型 = break 值类型），须作为对 §15.1 的显式演进另立 RFC（走 RFC 0005 §9 解冻通道）并同时把 `loop` 加入 `expr` 产生式——本 RFC 不引入此项（见 §11 #1）。
+- `parallel_for` / `parallel_reduce` 按 §87 #9 为**表达式**（返回 `List<R>` / 归约值），本 RFC 将其**并入 §27 `primary`**（与 `struct_init` / `list_lit` / `map_lit` 同级），故 `let squares = parallel for x in data { x * x }`（§21.10 / §58 冻结示例）可从 `expr` 链派生；语句位置经 §27 `stmt := … | expr` 分支自动可达（故 `stmt` 产生式不再单列 parallel）。`parallel_reduce` 的 `op` 实参为 lambda 字面量（如 `(a, b) -> a + b`），其形式依赖一等闭包——§21 冻结声明 v0.2 无一等闭包，故 §21.10 / §58 的 `parallel reduce(…)` 示例为**前向示例**，op 字面量的完整定义随闭包 RFC 落地（见 §11 #2）；本 RFC 只锁 `parallel_reduce` 产生式骨架（body 已用 `arm_body` 兼容冻结 body 形 `{ x -> … }` 与纯 block）。
 - `break`/`continue` 仅在 loop/for 体内合法，嵌套函数内非法（编译期校验）。
 
 > `break`/`continue` 已在 §9 控制流类别（56 关键字之一，§83 #5 锁定），本 RFC 仅补其**产生式体**（原 §27 `stmt` 骨架未列其形），**不新增关键字**。其语义在 §16（统一 `{ }` 控制流）已隐含使用、§298/§381 已列。
@@ -103,15 +102,16 @@ stmt := "let" ident (":" type)? "=" expr
 ```
 // 整数（无类型后缀，沿用现状；类型由上下文推断 §15.2）
 int_lit   := decimal | hex_lit | oct_lit | bin_lit
-decimal   := [1-9] ("_"? [0-9])* | "0"                      // 十进制，允许 _ 分隔（1_000_000）；纯 "0" 合法
+decimal   := [1-9] ("_"? [0-9])* | "0"                      // 十进制整数部分，允许 _ 分隔；纯 "0" 合法（禁前导零，避免 C 的 010 陷阱）
 hex_lit   := "0x" [0-9a-fA-F] ("_"? [0-9a-fA-F])*           // 0xFF 0xDE_AD
 oct_lit   := "0o" [0-7] ("_"? [0-7])*                       // 0o777
 bin_lit   := "0b" [01] ("_"? [01])*                         // 0b1010
+digits    := [0-9] ("_"? [0-9])*                            // 允许前导零与 _ 的数字序列（用于浮点小数部分/指数；与 decimal 禁前导零区分）
 
 // 浮点（无类型后缀；默认 f64，§15.1）
-float_lit := decimal "." [0-9]* exp?                         // 1.0  1.5  3.14e0
-           | decimal exp                                     // 1e10  2E-3
-exp       := ("e" | "E") ("+" | "-")? decimal
+float_lit := decimal "." digits exp?                        // 1.0  1.5  3.14e0  3.141_592（小数与指数均允许 _）
+           | decimal exp                                     // 1e10  2E-3  1e05（指数允许前导零）
+exp       := ("e" | "E") ("+" | "-")? digits                // 指数用 digits（允许前导零，如 e05；不复用 decimal）
 
 // 字符
 char_lit  := "'" ( char_escape | [^'\\ \n] ) "'"             // 'a'  '\n'  '\u{1F600}'；单引号内单字符或转义
@@ -120,6 +120,7 @@ char_lit  := "'" ( char_escape | [^'\\ \n] ) "'"             // 'a'  '\n'  '\u{1
 string_lit:= '"' ( string_escape | [^"\\] )* '"'             // "hello\nworld"；双引号包裹
 string_escape := "\\" ( "n" | "t" | "r" | "\\" | "'" | '"' | "0"   // 常规转义 \n \t \\ \' \" \0
                        | "u{" hex+ "}" )                      // Unicode 标量值 \u{1F600}（1–6 位 hex）
+char_escape := string_escape                                // 字符转义 = 字符串转义（共用；char_lit 引用此别名，闭合悬空非终结符）
 
 literal   := int_lit | float_lit | char_lit | string_lit | "true" | "false"
 ```
@@ -153,12 +154,12 @@ AILang 的既定设计（§15.2 现状）——「函数参数与返回**必须�
 1. **签名边界全显式**——函数参数类型、返回类型、`where { }` 泛型 bound（§15.10）在签名处**必须**显式；这是 `check` 模式的锚点，使推断**局部**于函数体，不跨函数传播（跨函数契约传播属 RFC 0004 Tier 3，非本层）。
 2. **局部 `let` 推断**——`let x = e`：`synth(e)` 得 `T`，`x: T`；`let x: T = e`：`check(e, T)`。局部变量**不泛化**（无 let-polymorphism）——简化推断、对齐「签名显式」边界。
 3. **泛型实参推断**——`f(args)` 调用：由 `args` 的 `synth` 类型 + `f` 签名，生成约束 `T_i = synth(arg_i)`，求解泛型参数 `T_i`。**return-only 泛型**（`fn empty<T>() -> List<T>`，§86 #7）无法从实参推断，**必须**调用点显式 `empty<int>()`（turbofish 或 `<T>`，见 §7）。
-4. **字面量类型确定**——无后缀字面量（§5）的 `synth`：`int_lit` → 默认 `int`（i64），但若处 `check(T)` 上下文且 `T` 为整数类型（`uint`/`int8`..），则采用 `T`（双向消歧）；`float_lit` → 默认 `float`（f64），同理可被 `check(f32)` 收窄。
+4. **字面量类型确定**——无后缀字面量（§5）的 `synth`：`int_lit` → 默认 `int`（i64），但若处 `check(T)` 上下文且 `T` 为整数类型（`uint`/`int8`..），则采用 `T`（双向消歧）；`float_lit` → 默认 `float`（f64），同理可被 `check(f32)` 收窄；`char_lit` → `char`（Unicode 标量值类型，由 [RFC 0007](./0007-determinism-batch.md) §8 引入 §15.1——本 RFC 定义 `char_lit` 的**词法**、其**类型归属** `char` 跨 RFC 由 0007 §8 闭合，两 RFC 同批落地故自洽）；`string_lit` → `string`；`true`/`false` → `bool`。
 5. **约束传播**——`constraint T { ... }`（§15.4）的构造时断言在 `check` 完成后运行期求值（非推断的一部分，§92 #8）。
 
 **Decidability 声明（规范承诺）**：
 
-> **类型推断可判定**：给定全显式的函数签名，函数体内类型检查在 **O(n·α(n))** 时间内终止（n = AST 节点数，α ≈ 近线性，来自 union-find 约束求解），**且总是产生唯一类型或报告类型错误**。可判定的依据：① 签名显式消除跨函数传播；② 局部 `let` 不泛化（无 HM 的 let-poly，无 principle type 通集问题）；③ 无递归类型（递归须 `Box<T>` 显式，§15.6）——故合一不发散；④ 约束图为有限 DAG，union-find 求解必终止。
+> **类型推断可判定**：给定全显式的函数签名，函数体内的**类型推断（synth/check 等价合一求解）**在 **O(n·α(n))** 时间内终止（n = 函数体 AST 节点数，α ≈ 近线性，来自 union-find 约束求解），**且总是产生唯一类型或报告类型错误**。**范围限定**：本承诺仅覆盖等价合一求解（局部约束图的并查集求解）；**不含** trait bound 解析（`where { Ord<T> }` 在全局 impl 表中查找，§15.10 / §86 #8 / §86 #10）——后者单独可判定（必终止、唯一结果或类型错误），但复杂度随全局 impl 表大小与单态化实例如数增长，不归 union-find、不在 O(n·α(n)) 内。可判定的依据：① 签名显式消除跨函数传播；② 局部 `let` 不泛化（无 HM 的 let-poly、无 principle type 通集问题）；③ 类型项有限 + 每次调用取 fresh 类型变量 + 名义类型按 head 相等（§15.3），Robinson 合一在有限项上必终止（`Box<T>` §15.6 仅保内存布局有限，**非**合一终止条件）；④ 等价约束经 union-find 求解，有限约束集必终止（不要求 DAG）。**前置良型条件**：decidability 承诺仅覆盖**类型良型**的程序——透明别名环（`type A = B; type B = A`）、递归类型未 `Box<T>` 间接等须由前置良型 pass 拒绝（对齐 §73 实现层陷阱），不在本终止保证范围内。
 
 > 此声明把「类型检查终止」从工程假设提升为**规范承诺**，对齐 SPARK/Rust 的 decidability 取向（synthesis §5 第二轮「borrow checker 无 soundness 声明」的同层问题，本 RFC 先解决类型推断层）。
 
@@ -179,9 +180,8 @@ AILang 的既定设计（§15.2 现状）——「函数参数与返回**必须�
 `call` 的 `<` 后缀仅当后续 token 序列匹配 `type_arg ("," type_arg)* ">" "(" ` 时才采纳为类型实参；否则 `<` 回退为比较运算符。
 
 ```
-call := primary
-      ( type_args "(" args? ")"        // 仅当 lookahead 匹配 type_args ">" "("
-      | "(" args? ")" )?
+call := type_args "(" args? ")"        // 纯后缀；嵌入 §27 postfix := primary (call|index|member)*
+      | "(" args? ")"                  // 仅当 lookahead 匹配 type_args ">" "(" 时采纳上一行（类型实参），否则 < 回退为比较
 type_args := "<" type_arg ("," type_arg)* ">"    // lookahead：须后跟 "("
 ```
 
@@ -193,12 +193,12 @@ type_args := "<" type_arg ("," type_arg)* ">"    // lookahead：须后跟 "("
 类型实参**必须**写作 `::<...>`（Rust现行 turbofish），`<` **永远**是比较运算符。
 
 ```
-call := primary ( "::" type_args "(" args? ")" | "(" args? ")" )?
+call := "::" type_args "(" args? ")" | "(" args? ")"     // 纯后缀；嵌入 §27 postfix := primary (call|index|member)*
 ```
 迁移：`decode<User>(row)` → `decode::<User>(row)`（§86 #7 示例更新）。
 
 - **优点**：彻底无歧义——`<` 永远是比较，`::<` 永远是类型实参；parser 无回溯；对 AI 高度可预测（对齐 AILang 核心）；与 Rust 生态经验证一致。
-- **缺点**：**修改 §86 #7 冻结决议**（`<T>` → `::<T>`），属决断演进；现有示例（§86 #7、§15.10、教程）需迁移。本 RFC 为 Draft（未实现），迁移成本仅在文档层。
+- **缺点**：**修改 §86 #7 冻结决议**（调用点 `<T>` → `::<T>`），属决断演进；现有**调用点** `<T>` 示例需迁移——分布于 §15.2（`empty<int>()`）、§18（`Mutex<Data>(...)`）、§21（`Channel<int>()`）、§63 / §84 #14（`req.param<UserId>("id")`）、§27 文法注释（`decode<User>(row)`）、§86 #7 等（非穷尽）。**注意**：§15.10 的 `fn sort<T>` 属**泛型声明**（`generic` 产生式，非调用点 `call`），**不**需迁移（声明位在任何语言都不用 turbofish）。本 RFC 为 Draft（未实现），迁移成本仅在文档层。
 
 ### 推荐
 
@@ -261,9 +261,10 @@ call := primary ( "::" type_args "(" args? ")" | "(" args? ")" )?
 | 本 RFC 条款 | 对齐的既有规范 | 自洽性 |
 |---|---|---|
 | §4 if 条件须 bool | §15 无隐式转换（仅 string+Display 例外 §11） | ✅ |
-| §4 loop 体 never | §15.1 `never`（⊥）定义 | ✅ |
-| §4 parallel_for 返回 List\<R> | §87 #9 parallel for 表达式化 | ✅ |
+| §4 loop 体 never（语句，非 value 表达式，break 无值） | §15.1 `loop` 表达式类型 = `never`（⊥） | ✅ 一致（loop 未入 expr 产生式，非演进） |
+| §4 parallel_for/reduce 并入 §27 primary（expr 可达） | §87 #9 parallel 表达式化 + §21.10/§58 示例 | ✅ 已并入 primary，`let x = parallel for…` 可派生 |
 | §5 无后缀字面量 + 默认类型 | §8.6 现状 + §15.1 int=i64/float=f64 + §90 #2 | ✅ |
+| §5 char_lit → char 类型 | RFC 0007 §8 引入 char 类型（跨 RFC，同批落地） | ✅ 词法在本 RFC、类型在 0007 §8 |
 | §6 签名显式 + 局部推断 | §15.2 现状两句 + §15.10 泛型 where | ✅（展开） |
 | §6 return-only 泛型显式 | §86 #7 | ✅ |
 | §7 方案 B 修改 `<T>` | §86 #7（**显式演进**，唯一例外） | ⚠️ 需决断 |
@@ -287,11 +288,12 @@ call := primary ( "::" type_args "(" args? ")" | "(" args? ")" )?
 
 ## 11. 开放问题
 
-1. **`break expr` 类型合流与 loop 表达式**——§4 让 `loop` 可作表达式（体 `never`，`break expr` 提供值）。多 `break` 点的类型合流（所有 `break expr` 类型须一致或可合一到 loop 表达式类型）的精确规则待定；v0.2 倾向要求所有 `break` 点**同型**（无子类型合并），简化推断（与 §6 decidability 一致）。
-2. **原始字符串 / 字节串**——§5 仅定义基础 `string_lit`；`r"..."` 原始字符串、`b"..."` 字节串推迟 v0.4（与 raw_pointer/字节处理一并）。
-3. **`<` 消歧方案 A/B 最终决断**——§7 推荐 B，但需 review + 对抗验证评估迁移成本与歧义边界后定。
-4. **推断算法的 const fn / CTFE 边界**——§6 仅覆盖运行期类型推断；常量求值域（const fn / CTFE）是 spec-maturity 最薄弱单点（~5%），但其形式化超出 P0-1 范围，留独立 RFC（P1+）。
-5. **类型推断与 borrow checker 的交互**——§6 的推断独立于所有权（§18/§74）；二者在 codegen 前的 pass 顺序（infer → borrow）待编译器实现层定（§65+）。
+1. **`loop` 作 value 表达式（推迟）**——本 RFC 保持 `loop` 为语句、体类型 `never`、`break` 无值（对齐冻结 §15.1，零语义演进，loop 未入 §27 `expr` 产生式）。若未来要让 `loop` 产出值（`break expr` + loop 表达式类型 = break 值类型，多 break 点同型合流），须作为对 §15.1 的显式演进另立 RFC（走 RFC 0005 §9 解冻通道）并同时把 `loop` 加入 `expr` 产生式——本 RFC 不引入此项。
+2. **`parallel_reduce` 的 `op` lambda 字面量**——§4 `parallel_reduce` 的 `op` 实参为 lambda（如 `(a, b) -> a + b`），其形式依赖一等闭包；§21 冻结声明 v0.2 无一等闭包，故 §21.10 / §58 的 `parallel reduce(…)` 示例为前向示例。本 RFC 只锁产生式骨架（body 用 `arm_body`）；op 字面量的完整定义随闭包 RFC 落地。
+3. **原始字符串 / 字节串**——§5 仅定义基础 `string_lit`；`r"..."` 原始字符串、`b"..."` 字节串推迟 v0.4（与 raw_pointer/字节处理一并）。
+4. **`<` 消歧方案 A/B 最终决断**——§7 推荐 B，但需 review + 对抗验证评估迁移成本与歧义边界后定。
+5. **推断算法的 const fn / CTFE 边界**——§6 仅覆盖运行期类型推断；常量求值域（const fn / CTFE）是 spec-maturity 最薄弱单点（~5%），但其形式化超出 P0-1 范围，留独立 RFC（P1+）。
+6. **类型推断与 borrow checker 的交互**——§6 的推断独立于所有权（§18/§74）；二者在 codegen 前的 pass 顺序（infer → borrow）待编译器实现层定（§65+）。
 
 ---
 
