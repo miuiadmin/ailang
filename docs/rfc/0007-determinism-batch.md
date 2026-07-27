@@ -195,7 +195,7 @@ cast_expr := unary ("as" type)*         // x as int / x as float32 as f64（链�
 
 **决断**：
 
-> **`string` 维持有效 UTF-8 不变量**（构造即校验）：`string` 值恒为合法 UTF-8 序列——构造期（字面量 / `string` 构造 / `byte`→`string` 转换）校验，非法字节输入为构造期错误或 panic `InvalidUtf8`。故下文 `iter` / `char_count` / `Eq` 等 UTF-8 解码型方法**正常路径永不遇无效字节**；§8.3 / 开放问题 #4 的 `InvalidUtf8` panic 退化为该不变量的**防御性违约 panic**（非正常运行路径）。
+> **`string` 维持有效 UTF-8 不变量**（构造即校验）：`string` 值恒为合法 UTF-8 序列——构造期（字面量 / `string` 构造 / `byte`→`string` 转换）校验，非法字节输入为构造期错误或 panic `InvalidUtf8`。故下文 `iter` / `char_count` 等 UTF-8 解码型方法**正常路径永不遇无效字节**（`Eq` 为字节序 `memcmp`、非解码型方法，无解码失败路径、与 §8 #4 byte 序无关——不在此列）；§8.3 / 开放问题 #4 的 `InvalidUtf8` panic 退化为该不变量的**防御性违约 panic**（非正常运行路径）。
 
 1. **`length()` = UTF-8 字节长度**（O(1)，直接取缓冲长度）——对齐 Rust `String::len()` / Go `len(string)`，性能优先。
    - 另提供 `char_count()` = Unicode 码点数（O(n) 遍历解码），供「字符数」语义需求。
