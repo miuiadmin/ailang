@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2，post-pass-2 全部 18 findings [0H/15M/3L] 已修正、待 pass-3 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3，pass-3 报 6 confirmed [0H/5M/1L] 已修正、待 pass-4 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结规范**：§1–§94 语义决断、56 关键字、110 决议均不变；TaskHandle 新查询方法 `is_failed`/`status`/`failure` 为 `std.async` 方法非关键字——同 `cancelled`/`yield` 先例；`AILxxxx` 错误码为登记表标识符非关键字；零新关键字、零新文法产生式）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-3**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第四优先级；[`deep-review-2026-07.md`](../research/deep-review-2026-07.md) 可观测维度 4.0「运行期近零」+ P1「Task 失败语义闭环（RFC 0003 已依赖）」；[RFC 0003](./0003-pbt-fuzzer.md) PBT 每 trial 独立 Task 捕获 panic 的契约前置）|
@@ -20,7 +20,7 @@ deep-review 把 **可观测维度评为 4.0**——全场最弱项之一，判�
 
 **三者为何同批**。它们是**同一主题「让失败可被观测」的编译期 / 标识 / 运行期三面**：诊断协议 = 编译期失败如何结构化吐出；错误码 = 失败如何稳定命名；TaskHandle 错误态 = 运行期 Task 失败如何可观测。合在一起把「可观测 4.0」从结构上抬起，并闭合 RFC 0003 的前置依赖。
 
-**本 RFC 的性质**：纯**工具链 / 运行时可观测层**——零新关键字、零新文法产生式；`TaskHandle` 查询方法为 `std.async` 方法（同 `cancelled`/`yield` 先例，§87 已确认此类不计入 56）；`AILxxxx` 为登记表标识符。不修改 §17 panic 模型、§87 #4 spawn/cancel、§89 #8 并发错误表任一冻结决议——仅**扩展填补**「错误态未定义」「诊断未协议化」「错误码未分类」三个被前轮决议引用却悬空的缝隙。
+**本 RFC 的性质**：纯**工具链 / 运行时可观测层**——零新关键字、零新文法产生式；`TaskHandle` 查询方法为 `std.async` 方法（同 `cancelled`/`yield` 先例，§87 已确认此类不计入 56）；`AILxxxx` 为登记表标识符。不修改 §17 **已列** panic 触发的语义、§87 #4 spawn/cancel、§89 #8 并发错误表任一冻结决议；为 §20 `requires`/`ensures` 运行期违约（冻结 §20 line 990 / §27 line 1480 仅标「运行期断言」、**未定失败行为**——与 §92 #2 显式写明 T(expr) 违约→panic ConstraintViolation 形成对比）显式定义为 panic 并分配 AIL7008/7009（与 §92 #2 T(expr) 违约→panic 同族）——属 **gap-fill 非 overturn**。仅**扩展填补**「错误态未定义」「诊断未协议化」「错误码未分类」三个被前轮决议引用却悬空的缝隙。
 
 ---
 
@@ -119,7 +119,7 @@ pub struct Diagnostic {
 **形状映射**（JSON `Span` 与既有形状的关系，**不修改既有形状**）：
 - **§69.1 内部 `Span {start, end, line, col}`**：编译器内部表示，无 `file`（文件经编译会话上下文持有）。发射 JSON 时，发射器从会话上下文补 `file`，取 `start`/`end`（文件字节偏移，§69.1 既有语义）+ `line`/`col`（本协议定义为 Unicode 标量值字符列）。**§69.1 struct 不变**（不加 `file`——`file` 由会话上下文提供，非进内部 Span）。
 - **§24 `.ailmeta` `span {file, line_start, col_start, line_end, col_end}`**：`.ailmeta` schema 字段，双端点（`line_start`/`line_end`）、字段名与本协议 JSON `Span`（单 `line`/`col` 起点 + `start`/`end` 字节偏移）不同。二者信息可互转但**形状不同、各自保持**——本协议**不**改写 §24 schema（§24 字段名属冻结 `.ailmeta` schema，改须经 Authorized RFC）。诊断 JSON 的单点定位用本协议 `Span`；`.ailmeta` 的源码定位用 §24 `span`。
-- **RFC 0003 PBT 反例定位**：经本协议 JSON `Span` 发射（PBT runner 消费诊断 JSON），不经 §69.1 / §24。
+- **RFC 0003 PBT/fuzz 反例 `span`**：归 RFC 0003 §9.6 自身 schema 决定（现行 RFC 0003 §9.6 line 164/175 采用 §24 形 `{file, line_start, col_start, line_end, col_end}`），**不**经本协议 JSON `Span`——本 RFC 仅定义**编译器诊断发射**（`ailc --diagnostics-format=json`）的 JSON `Span` 形状，不扩展到 PBT runner 输出。若 RFC 0003 未来决定改用 JSON `Span` 形，由 RFC 0003 自行登记其 schema 变更（本 RFC §7 交叉更新表**不**代为登记）。
 
 **`suggestion` 应用语义**（机器补丁）：消费方（AI / 编辑器）应用建议 = 将 `[span.start, span.end)` 区间替换为 `replacement` 字符串。`replacement` 为字面替换文本（非 diff / 非 AST 变换），应用后**应**重新编译校验（建议非权威修复，可能引入新诊断）。`suggestion` 的 `span` 必落在 `Diagnostic.span` 或其 `related[].span` 之一内（建议须指向被诊断的代码区域）。
 
@@ -172,7 +172,7 @@ pub struct DiagnosticCode {
 
 ### 5.3 运行期 panic 接入错误码
 
-§17 已列的 panic 命名（`ArithmeticOverflow`/`DivideByZero`/`IndexOutOfBounds`/`ConstraintViolation`/`unwrap`/`assert`/显式 `std.core.panic(msg)`）**映射为 `AIL7xxx`**——运行期 panic 现在携带 `DiagnosticCode`（而非裸命名串）。panic payload（§6 `TaskFailure`）含该 code，使运行期失败有稳定标识、可被 AI / 监控稳定匹配——闭合「可观测 运行期近零」的核心空洞。**§17 全部 panic 触发（含 §34「无独立符号」的 `unwrap`/`assert`/`std.core.panic`）均有对应 AIL7xxx 码**（AIL7005–7007 / AIL7010）——故 §6.2 `TaskFailure.code` 为非 Optional（`DiagnosticCode` 而非 `Optional<DiagnosticCode>`）：任一 `Failed` 态 Task 必有稳定 code。
+§17 已列的 panic 命名（`ArithmeticOverflow`/`DivideByZero`/`IndexOutOfBounds`/`ConstraintViolation`/`unwrap`/`assert`/显式 `std.core.panic(msg)`）**映射为 `AIL7xxx`**——运行期 panic 现在携带 `DiagnosticCode`（而非裸命名串）。panic payload（§6 `TaskFailure`）含该 code，使运行期失败有稳定标识、可被 AI / 监控稳定匹配——闭合「可观测 运行期近零」的核心空洞。**§17 已列 panic 触发（含 §34「无独立符号」的 `unwrap`/`assert`/`std.core.panic`）均有对应 AIL7xxx 码**（AIL7005–7007 / AIL7010）；此外 §20 `requires`/`ensures` 运行期违约（冻结 §20 line 990 / §27 line 1480 未定失败行为、本 RFC §1 显式 gap-fill 为 panic）亦有 AIL7008 / AIL7009。故 §6.2 `TaskFailure.code` 为非 Optional（`DiagnosticCode` 而非 `Optional<DiagnosticCode>`）：任一 `Failed` 态 Task 的 panic——无论源出 §17 已列触发还是 §20 契约违约——必有稳定 code。
 
 ### 5.4 与用户 `error` 枚举的边界
 
@@ -191,7 +191,7 @@ pub struct DiagnosticCode {
 ```
 Created → Running → Waiting → Completed
    │          │          │
-   │          │          ├──► Cancelled          // 既有：协作式取消（§21.8，可发生于 Running/Waiting 任一）
+   │          │          ├──► Cancelled          // 既有：协作式取消（§21.8，Waiting → Cancelled，仅在 await 点生效；CPU-bound task 须 task.yield() 让出以检查 cancelled()，§21.8 line 1212 prose）
    │          │          │
    │          ├──┐       └──► Failed             // 新增：Task 内 panic 在边界被吸收为失败态
    │          │  │
@@ -235,21 +235,23 @@ struct TaskFailure {
 1. **scoped task（默认，§87 #4）**：作用域末隐式 join 时，若子 Task 处于 `Failed`：
    - **父已取回失败**（调过 `h.failure()` 得到 `Some`）→ 视为**已确认（ack）**，**不**向父传播（父已知情并处理）；
    - **父未取回**（未观测的 `Failed`）→ **panic 传播至父**（父以该 `TaskFailure` panic）——失败**绝不**静默丢失。
-2. **`spawn detached`（显式分离，§87 #4）**：无作用域父可传播 → 失败仅经 `h.failure()` 显式查询可观测。**未被 ack 的 detached `Failed` 的投递时机与互斥**（闭合「detached 失败可能永不报告」+「ack 后又投递全局处理器」+「handle 早于失败 drop → 孤儿失败」三重漏洞）：
+2. **显式 `h.join()`（§37 line 3104 / §87 #4 TaskHandle 方法，与作用域末隐式 join 并存）**：`h.join()` **阻塞调用方至目标 Task 到达终态**（`Completed` / `Cancelled` / `Failed`），**不**传播 panic——panic 传播**仅**属上述 #1 隐式作用域末 join 对未 ack `Failed` 的行为；显式 `join` 仅同步等待、不引入二次 panic。失败观测统一经 join 后 `h.failure()` 取回 ack。**PBT runner 规范用法序列**（闭合 RFC 0003 §4.2 步 2-3「先 join 后观测」）：`h.join()`（阻塞至终态）→ `h.is_failed()`（查询 `Failed`）→ `h.failure()`（取回 `Some<TaskFailure>` = ack）→ 作用域末隐式 join 见已 ack → 不传播。此序列为 v0.3.0 规范定义的非传播失败观测路径（不依赖 §10 OQ #2 的 P1+ `try_join` 等高阶 API），使 PBT trial 捕获契约可落地。
+3. **`spawn detached`（显式分离，§87 #4）**：无作用域父可传播 → 失败仅经 `h.failure()` 显式查询可观测。**未被 ack 的 detached `Failed` 的投递时机与互斥**（闭合「detached 失败可能永不报告」+「ack 后又投递全局处理器」+「handle 早于失败 drop → 孤儿失败」+「immortal handle 永不投递」四重漏洞）：
    - **ack 互斥**：`h.failure()` 返回 `Some` 即**唯一 ack 点**——已 ack 的失败**不得**再投递全局处理器（`failure()` 取回与全局处理器投递**互斥**，杜绝同一失败被双重处理）。
    - **handle drop 触发（失败已发生）**：detached `TaskHandle` 被 drop **且 Task 已处 `Failed`** 而 `failure()` 从未返回 `Some`（未 ack）时，runtime 在 drop 点把该 `TaskFailure` 投递全局处理器 `std.async.on_unhandled_task_failure: fn(TaskFailure) -> void`——失败**不**因 handle 被丢弃而丢失。
-   - **Task 级孤儿兜底（失败晚于 handle drop）**：exit-sweep **锚定 Task 身份**而非 handle 存活——runtime 维护全部 detached Task 的注册表；若 handle 在 Task 仍 `Running`/`Waiting` 时被 drop、Task **随后**才 panic 进入 `Failed`（drop 时无失败可投递、handle 已不存在），该孤儿 `Failed` 由**进程退出 sweep** 捕获：sweep 遍历注册表中**所有未 ack 的 `Failed` Task**（含 handle 已 drop 的），逐一投递全局处理器。此重锚消除「handle 早 drop + 晚 panic」的静默丢失——失败的可观测出口锚定于 **Task 生命周期**，不取决于调用方是否保留 handle。
-   - **进程退出 sweep（immortal handle 同机制）**：被**永久持有**（immortal handle，从不 drop）且未 ack 的 detached `Failed`，亦由上述 Task 级 sweep 捕获（与孤儿同机制）——保证「从未被观测」的 detached 失败最终必经全局处理器出口。
+   - **Fail-time 投递（失败晚于 handle drop 或 immortal handle）**：runtime 同时持有 Task 注册表（知 Task 身份 / 当前态）与 handle 存活状态——当 detached Task **转入 `Failed` 的瞬间**，若其 handle 已 drop（孤儿：失败晚于 drop）**或** handle 虽存活但从未被外部 `failure()` 取回过（immortal handle 未观测），runtime **立即**把该 `TaskFailure` 投递全局处理器，**不**推迟到进程退出。此重锚消除「孤儿 detached + 永不退出进程」与「immortal handle 未 ack」两种静默丢失——失败的可观测出口锚定于 **Task Fail 事件本身**，不取决于调用方是否保留 handle、亦不取决于进程是否退出。投递后该 `TaskFailure` 标记为「已出口」；若 handle 后续 `failure()` 查询（ack 窗口已过），返回 `Some` 但**不再抑制**已发生的全局投递（双重处理风险由 ack 互斥条款闭合——一旦 Fail-time 已投递，后续 `failure()` 视为 informational 查询、非 ack）。
+   - **进程退出 sweep（兜底，非唯一路径）**：上述 Fail-time 投递已使「永不退出进程」报告成为常态；进程退出 sweep 退为**最终兜底**（应对 runtime 实现的 Fail-time 投递遗漏或全局处理器自身失败等退化），sweep 遍历注册表中**所有未投递且未 ack 的 `Failed` Task**（含 handle 已 drop 的），逐一投递全局处理器。即：长驻服务进程不再依赖「进程退出」即可观测 detached 失败。
    - 全局处理器默认实现：记录到诊断日志 + 继续；可由用户覆写为 panic / 上报 / 忽略。
-3. **actor 死信（§17 / §21.7）**：actor `on` handler panic → actor 进入死信态（既有），其失败信息同样以 `TaskFailure` 形式可经 `ActorHandle` 查询（与 TaskHandle 对称，细节留开放问题 #4）。
+4. **actor 死信（§17 / §21.7）**：actor `on` handler panic → actor 进入死信态（既有），其失败信息同样以 `TaskFailure` 形式可经 `ActorHandle` 查询（与 TaskHandle 对称，细节留开放问题 #4）。
 
 **设计说明**：
-- 「取回即确认」把 `failure()` 定为**唯一消费式 ack**——对齐 §87 #1 / §21.9「不隐藏错误」哲学（错误须有可观测出口、不得静默吞）：你看了就是你的（ack、不传播），没看就崩你（scoped 传播至父）或经 drop/exit-sweep 进全局处理器（detached）。简单、sound、AI 可预测。**不援引「Result 必须 handle」**——冻结规范无此规则（`Result<T,E>` 经 `throw`/`try`/`match` 消费、无强制 handle 义务，§17 / §89 #6）；本规则的「失败必可观测」义务源于 §87 #1 并发不隐藏错误，非 Result 消费规则。
-- **ack 与全局处理器互斥**：一个 `TaskFailure` 的生命周期是「未观测 →（ack 经 `failure()` 取回 ⟹ 终止）∨（未 ack ⟹ drop 或 exit-sweep 时投递全局处理器 ⟹ 终止）」——单一出口、不重复、不丢失。
-- 默认传播保证「不隐藏错误」——一个 panic 的子 Task 不会被静默吞掉，要么父显式处理，要么父跟着 panic（scoped）/ 进全局处理器（detached）。
-- detached 的全局处理器是 fire-and-forget-adjacent 模式的逃生舱（日志 / 上报），但不静默——有可观测出口，且 immortal handle 由 exit-sweep 兜底。
+- 「取回即确认」把 `failure()` 定为**唯一消费式 ack**——对齐 §87 #1 / §21.9「不隐藏错误」哲学（错误须有可观测出口、不得静默吞）：你看了就是你的（ack、不传播），没看就崩你（scoped 传播至父）或经 drop / Fail-time / exit-sweep 进全局处理器（detached）。简单、sound、AI 可预测。**不援引「Result 必须 handle」**——冻结规范无此规则（`Result<T,E>` 经 `throw`/`try`/`match` 消费、无强制 handle 义务，§17 / §89 #6）；本规则的「失败必可观测」义务源于 §87 #1 并发不隐藏错误，非 Result 消费规则。
+- **显式 vs 隐式 join 的语义二分**：显式 `h.join()` 仅同步等待、不传播（让调用方主动观测失败）；隐式作用域末 join 是「不隐藏错误」的兜底 panic 传播点（对未 ack 失败）。二者并存而非冲突——显式 join + `failure()` ack 是「主动处理」路径，隐式 join 传播是「被动兜底」路径，调用方选其一即可避免二次 panic。PBT runner / 显式错误处理走前者；默认 scoped task 走后者。
+- **ack 与全局处理器互斥**：一个 `TaskFailure` 的生命周期是「未观测 →（ack 经 `failure()` 取回 ⟹ 终止）∨（未 ack ⟹ drop / Fail-time / exit-sweep 时投递全局处理器 ⟹ 终止）」——单一出口、不重复、不丢失。**Fail-time 投递与 ack 互斥的细节**：Fail-time 投递发生在「转入 `Failed` 瞬间且当时未 ack」时，一旦投递即视为「已出口」、后续 `failure()` 查询不构成抑制投递的 ack（避免「先投递再查询」造成双重处理）。
+- 默认传播保证「不隐藏错误」——一个 panic 的子 Task 不会被静默吞掉，要么父显式处理，要么父跟着 panic（scoped）/ 进全局处理器（detached，且 Fail-time 投递使长驻进程亦能及时报告）。
+- detached 的全局处理器是 fire-and-forget-adjacent 模式的逃生舱（日志 / 上报），但不静默——有可观测出口；Fail-time 投递使「immortal handle 未 ack」与「永不退出进程」亦能及时报告（不再依赖 exit-sweep 兜底）。
 
-> 此规则闭合 RFC 0003 PBT「每 trial 独立 Task 捕获 panic = 唯一可观测 unwind 边界」——该边界现为**规范契约**：trial Task 的 panic 确定地成为 `TaskFailure`，runner 经 `h.failure()` 可靠取回（确定性、可复现），支撑 PBT shrinking / fuzz 反例的稳定捕获。
+> 此规则闭合 RFC 0003 PBT「每 trial 独立 Task 捕获 panic = 唯一可观测 unwind 边界」——该边界现为**规范契约**：trial Task 的 panic 确定地成为 `TaskFailure`，runner 经显式 `h.join()` 阻塞至终态后 `h.failure()` 可靠取回 ack（不传播、确定性、可复现），支撑 PBT shrinking / fuzz 反例的稳定捕获（§6.3 #2 序列）。
 
 ---
 
@@ -302,11 +304,11 @@ struct TaskFailure {
 | §5 用户 error 不在 AILxxxx | §17 `error` 枚举 + §89 #10 `errors[]` 单一真源 | ✅ 命名空间分离 |
 | §6 `Failed` 终态（Running/Waiting 均可转入） | §17 panic 展开至 Task 边界（不传染进程） | ✅ 一致（边界吸收为 Failed） |
 | §6 `TaskStatus` 忠实投影（Created/Running/Waiting + 三终态） | §21.8 生命周期全集 | ✅ 一一对应（无「blocked Task 无 status 返回」缺口） |
-| §6 join 失败传播 | §21.9 / §87 #1「不隐藏错误」 | ✅ 哲学一致 |
+| §6 scoped 隐式 join 传播 + 显式 `h.join()` 不传播 | §21.9 / §87 #1「不隐藏错误」 + §37 line 3104 / §87 #4 `join` 为 TaskHandle 方法 | ✅ 哲学一致；显式 join（同步等待、不传播）与隐式 join（未 ack 兜底传播）二分共存；PBT runner 经 `join → is_failed → failure` 序列实现非传播观测（v0.3 落地、不依赖 OQ #2 P1+ `try_join`） |
 | §6 `failure()` 取回即确认（唯一 ack） | §87 #1 / §21.9「不隐藏错误」（失败必有可观测出口） | ✅ 哲学一致（**不**援引不存在的「Result 必须 handle」规则——§89 #1 为 try/catch 文法、无 Result 强制 handle；本义务源于并发不隐藏错误） |
-| §6 detached ack/drop/exit-sweep 互斥（Task 级 exit-sweep 锚定 Task 身份） | §87 #4 detached 非作用域、cancel 可达 | ✅ 单一出口、不重复、不丢失；exit-sweep 锚 Task 注册表（非 handle 存活）→ 闭合「handle 早 drop + 晚 panic」孤儿失败 + immortal handle 同机制兜底 |
-| §6 RFC 0003 trial 捕获契约 | RFC 0003「唯一可观测 unwind 边界」 | ✅ 定义该边界 |
-| §4.2 JSON `Span` 为诊断发射协议**专用形状**（非声称全规范统一） | §69.1 内部 `Span`（无 file）/ §24 `.ailmeta` span（字段名不同）/ RFC 0003 PBT 反例 | ✅ 既有形状各自不变；本协议 JSON `Span` 含 `file`、`col` 定义为 Unicode 字符列；映射关系显式给出（不覆写 §69.1/§24 冻结形状、不引入实现定义行为） |
+| §6 detached ack/drop/**Fail-time**/exit-sweep 互斥（Task 级、Fail-time 投递锚定 Task Fail 事件） | §87 #4 detached 非作用域、cancel 可达 | ✅ 单一出口、不重复、不丢失；Fail-time 投递在「Task 转入 `Failed` 瞬间且未 ack」时立即触发（覆盖孤儿 drop + immortal handle + 永不退出进程），exit-sweep 退为兜底——「永不报告」空洞在长驻服务进程下亦闭合 |
+| §6 RFC 0003 trial 捕获契约（显式 `h.join()` + `failure()` ack） | RFC 0003 §4.2 步 2-3「先 join 后观测」 + 「唯一可观测 unwind 边界」 | ✅ 定义该边界并提供非传播观测序列（§6.3 #2） |
+| §4.2 JSON `Span` 为**编译器诊断发射协议**专用形状（非声称全规范统一、非声称覆盖 PBT runner 输出） | §69.1 内部 `Span`（无 file）/ §24 `.ailmeta` span（字段名不同）/ RFC 0003 §9.6 PBT 反例 span（§24 形、归 RFC 0003 自身 schema） | ✅ 既有形状各自不变；本协议 JSON `Span` 含 `file`、`col` 定义为 Unicode 字符列；映射关系显式给出（不覆写 §69.1/§24 冻结形状、不引入实现定义行为）；**PBT 反例 span 形状不**经本协议——本 RFC 仅定义编译器诊断 JSON `Span` |
 | §4.1 DiagnosticCategory 含 `Runtime` 变体 | §5 AIL7xxx 运行期 panic 段 | ✅ 运行期 panic 有忠实 category（`category:"runtime"`）；Ffi/Codegen 对应 8xxx，三段各有归宿 |
 | 零新关键字 | §9（56）；`is_failed`/`status`/`failure` 为 std.async 方法（§87 先例）、`TaskStatus`/`TaskFailure`/`DiagnosticCode` 为类型词 | ✅ 已核查 |
 | 零新产生式 | §27 不动；§69.3 为编译器内部 struct、§21.8 为 std API + 生命周期图 | ✅ 已核查 |
@@ -320,6 +322,7 @@ struct TaskFailure {
 | §4.1 Diagnostic struct 扩展（Severity 5 级 / `code` / `related` / `suggestion` / `category`） | §69.3 内部 struct 扩展（Part IV 编译器实现层） | **资料性**（Part IV 实现 detail；§69.3 按 RFC 0005 §5 归 Part IV informative，不升格为合规义务来源） |
 | §4.2 诊断发射协议（JSON Lines schema + `Span` 专用形状 + 形状映射 + `suggestion` 应用语义） | 新增「诊断发射协议」小节（独立于 §69.3） | **规范性**（工具链合规契约：MUST 支持 `--diagnostics-format=json` + 字段表 + `Span` 专用形状及其与 §69.1/§24 的映射——非声称全规范统一、不覆写冻结形状） |
 | §5 AILxxxx 编号空间 + 登记 | §18.2 展开 + 附录 E（错误码登记表） | 规范性（编号空间 + 段边界不变量）+ 资料性（登记表种子码） |
+| §5 AIL7008/7009（§20 requires/ensures 运行期违约→panic） | §17 line 736「已知 panic 原因」清单补注（**声明非穷尽**）+ §20 line 990 / §27 line 1480 补违约→panic 条目 | 规范性（**gap-fill**：冻结 §20/§27 仅标「运行期断言」、未定失败行为；本 RFC 显式定义为 panic 并分配 AIL7008/7009——与 §92 #2 T(expr) 违约→panic ConstraintViolation 同族。合并后 §17 清单加「requires/ensures 运行期违约（AIL7008/7009）」一项或显式声明原清单非穷尽、由 §5 AIL7xxx 段闭合） |
 | §6 TaskHandle 错误态 | §21.8 生命周期图 + §21.9 并发错误表补注 + §87 #4 补注 | 规范性（Part I 并发） |
 | §6 `TaskStatus` / `TaskFailure` 类型 | §34 std.core / §37 std.async 类型表 | 规范性（std API） |
 | §7 交叉更新 | RFC 0005 §3 / §1.5.4 + RFC 0003（`panic_symbol`→`slug`）/ 0004 引用更新 | 同步 |
@@ -329,7 +332,7 @@ struct TaskFailure {
 ## 10. 开放问题
 
 1. **`failure()` 取回即 ack 的精确语义**——§6.3 定为「调 `h.failure()` 得 `Some` = 确认、不传播」。备选：需显式 `h.ack_failure()` 分离查询与确认。推荐取回即确认（同 Result handle 同构、更简洁），留 review。
-2. **join 传播 vs 父级 Result**——§6.3 scoped 子 Task `Failed` 默认 panic 传播至父。是否提供「父以 Result 接收子失败」的非 panic 路径（如 `try_join`）？v0.2 task 体 void + CSP 通道，倾向于经通道传失败消息而非新 join 算子；非 panic join 留 std.async 高阶 API（P1+）。
+2. **join 传播 vs 父级 Result**——§6.3 #1 scoped 子 Task `Failed` 默认 panic 传播至父（隐式作用域末 join）；§6.3 #2 已为 v0.3 定义**显式 `h.join()` = 阻塞至终态、不传播**（runner 经 join 后 `failure()` 取回 ack，非传播观测路径）。是否再提供「父以 Result 接收子失败」的高阶 API（如 `try_join` 返 `Result<T, TaskFailure>`）？v0.2 task 体 void + CSP 通道，倾向于经通道传失败消息而非新 join 算子；非 panic 高阶 join 留 std.async 设计（P1+）。
 3. **`--diagnostics-format=sarif`**——§4 定 json 为 v0.3 必备；SARIF（OASIS 标准，CI/IDE 通用）作为未来格式留 review。
 4. **Actor 死信可观测对称性**——§6.3 提 actor handler panic → 死信经 `ActorHandle` 查询 `TaskFailure`；其精确 API（与 TaskHandle 对称的方法集）留 std.async 设计。
 5. **诊断码登记的版本化**——§5 slug 一经发布不变；number 跨 major 可重编。major 版本切分点（v1.0？）与重编策略留治理（RFC 0005 §9 lifecycle）。
@@ -354,6 +357,15 @@ struct TaskFailure {
 - **§3 #4 应→必须**、**§5.2 段边界 AIL5001 Tier-2 标注**、**§8 自洽表同步**。
 
 pass-1 摘要：① 5xxx(编译期)/7xxx(运行期) 边界 + AIL7008/7009 + AIL7005/7006 拆分；② AIL8xxx FFI/ABI/布局/codegen 段 + DiagnosticCategory `Ffi`；③ §4.2 JSON 字段表 + suggestion 应用语义；④ §6.1 Failed 由 Running/Waiting 转入；⑤ §6.2 TaskStatus 忠实投影；⑥ §6.3 detached ack/drop/exit-sweep 互斥；⑦ §7 panic_symbol→slug；⑧ §9 normative/informative 拆分。待 pass-3 复验收敛 + regression。
+
+**pass-3 报 0H / 5M / 1L = 6 条 confirmed**（refuted 3、共 raw 9），已逐条修正、待 pass-4 复验：
+
+- **F1（M，ailxxxx-code-space）**：§1 + §5.3 + §9 协同——§1 把「不修改 §17 panic 模型」收紧为「不修改 §17 **已列** panic 触发的语义；为 §20 requires/ensures 运行期违约（冻结 §20/§27 仅标「运行期断言」、**未定失败行为**）显式定义为 panic 并分配 AIL7008/7009（gap-fill 非 overturn，与 §92 #2 T(expr) 同族）」；§5.3 非 Optional 论证纳入 AIL7008/7009（§20 源）；§9 落地映射加 §17 补注行（声明清单非穷尽）。
+- **F2（M，taskhandle-failed-state-closure）**：§6.3 新增 #2 显式 `h.join()` 条款——阻塞至终态、**不**传播 panic（传播仅属 #1 隐式作用域末 join 对未 ack Failed），并给出 PBT runner 规范序列 `join → is_failed → failure`（v0.3 落地、不依赖 OQ #2 P1+ `try_join`）；§10 OQ #2 同步标注显式 join 已 v0.3 定义。
+- **F3（M，taskhandle-failed-state-closure）**：§6.3 #3 把孤儿兜底从「进程退出 sweep」提前为 **Fail-time 投递**——runtime 在 detached Task 转入 `Failed` 瞬间且未 ack 时立即投递全局处理器（覆盖孤儿 drop + 永不退出进程）；exit-sweep 退为兜底（应对 Fail-time 投递遗漏 / 全局处理器自身失败等退化）。
+- **F4（L，taskhandle-failed-state-closure）**：§6.1 Cancelled 注释从「Running/Waiting 任一」收紧为冻结 §21.8 的「Waiting → Cancelled，仅在 await 点生效；CPU-bound 须 task.yield() 让出」——图与注释、注释与 §21.8 三者自洽。
+- **F5（M，join-failure-propagation）**：与 F3 同根——Fail-time 投递一并闭合 immortal handle 未 ack 静默漏洞；§6.3 设计说明弱化「最终必经全局处理器出口」的过强声称（改为 Fail-time 已使长驻进程亦能及时报告，exit-sweep 退为兜底）。
+- **F6（M，ai-consumability-0008）**：§4.2 撤回「RFC 0003 PBT 反例 span 经本协议 JSON `Span` 发射」单方面断言——本 RFC 仅定义编译器诊断发射 JSON `Span`；PBT 反例 span 归 RFC 0003 §9.6 自身 schema（现行 §24 形、跨 RFC 边界不代为登记）。§8 自洽表同步。
 
 > 本批是「可观测」主题，验证重心在**协议/契约的完备性与 soundness**（尤其 join 失败传播无静默吞、诊断 JSON schema 对 AI 稳定可消费），比 0006 的形式化、0007 的确定性更偏「契约正确性 + 不变量守住」。
 
