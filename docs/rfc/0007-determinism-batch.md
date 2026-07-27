@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（尚未跑对抗式 workflow；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑多轮对抗式 workflow pass-2–pass-14，post-pass-14 全部 findings 已修正、待 pass-15 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结规范**：§1–§94 语义决断、56 关键字、110 决议均不变；`as` 转换算子复用既有 56 关键字之一——`as` 已在 §9 模块类别，零新关键字）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-2**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第三优先级；synthesis §4 交叉印证 #1–#5 + #12，全部 high 严重度，两轮独立双盲命中）|
@@ -118,7 +118,7 @@ trait Hash {
 ```
 
 - **基础类型实现**：`int`/`uint`/`bool`/`float`/`byte`/`char` 直接实现 `Hash`（值经 `Hasher` 写入）；`string` 实现 `Hash`（UTF-8 字节序列）。**`float` 的 `Hash` 须与其 `Eq` 一致**（守住 `a == b ⟹ hash(a) == hash(b)` 不变量）：IEEE 754 下 `+0.0 == -0.0` 为真（§90 #2），故 `float` 的 `Hash` **必须**把 `+0.0` 与 `-0.0` 归一为同一哈希（按数值而非位模式）；`NaN ≠ NaN`（§90 #2），其相等前提为假、对 `Hash` 不施加一致性约束（实现可按位模式或固定值，因 `Eq` 已排除其相等匹配，查找 NaN 键永不命中）。
-- **语义类型**：透明别名（`kind: alias`）继承 base 的 `Hash`（透明别名不改变类型身份，按 §15.3 与 base 同一）；名义 semantic（`kind: semantic`，§15.3）的 `Hash` **不自动继承**——`Hash` 是**运算 trait**（带方法 `fn hash(...)`），属 §15.3 / §92 #7 锁定的「marker vs 运算」二分中的**运算类**，与 `Eq` / `Ord` 同类，**须显式实现**（v0.3 impl 语法落地后），保持 newtype 语义安全与 `Hash`/`Eq` 对称（二者皆须显式实现，避免「`Eq` 显式而 `Hash` 隐式继承」导致二者可能不一致 → 破坏 `a == b ⟹ hash(a) == hash(b)` 不变量）。唯一自动经 base 的例外是 `Display`（§15.3 已锁定的封闭例外集，非运算 trait）。
+- **语义类型**：透明别名（`kind: alias`）继承 base 的 `Hash`（透明别名不改变类型身份，按 §15.3 与 base 同一）；名义 semantic（`kind: semantic`，§15.3）的 `Hash` **不自动继承**——`Hash` 是**运算 trait**（带方法 `fn hash(...)`），属 §15.3 / §92 #7 锁定的「marker vs 运算」二分中的**运算类**，与 `Eq` / `Ord` 同类，**须显式实现**（v0.3 impl 语法落地后），保持 newtype 语义安全与 `Hash`/`Eq` 对称（二者皆须显式实现，避免「`Eq` 显式而 `Hash` 隐式继承」导致二者可能不一致 → 破坏 `a == b ⟹ hash(a) == hash(b)` 不变量）。唯一自动经 base 的例外是 `Display`——`Display` 同为**带方法的运算 trait**（`fn display(borrow self) -> string`，§15.5 line 552 / §86 #8 运算符 trait 表 line 1774 收录），但 §15.3 line 529 / line 2974 将其锁定为**运算类中唯一自动经 base 的封闭例外**（字符串化语义允许、§11）——故 `Display` **非** marker trait、亦**非**「运算类之外」，而是运算类内的特例；`Hash` 不属此例外集、与 `Eq`/`Ord` 同须显式实现（RFC 自身「带方法 = 运算」判据因此自洽：Display 带方法属运算、唯经 §15.3 例外方自动继承，而非被判为非运算）。
 - **Map/Set 的 `K` / `T` 约束**：`Map<K, V>` 要求 `where { Hash<K>, Eq<K> }`；`Set<T>` 要求 `where { Hash<T>, Eq<T> }`（插入 / 查找需哈希 + 相等）。
 - `Hasher` 为 std.core 类型（默认 SipHash-1-3，对齐 Rust HashMap 默认；**seed 运行期每进程生成**——对齐 Rust `RandomState`，以抗 HashDoS）。**注意**：seed 不烘焙进编译产物是**运行期安全属性**，与构建可复现性**正交**——seed 随机化会使编译器内部 set / Map 的迭代序**跨构建变化**，故与**字节级**可复现构建存在张力；该张力由 RFC 0009 §9.2 的「`.ailmeta` 数组字段**必须预先规范化排序后序列化**」规则闭合（与本 RFC §6.3 的 Map 迭代序显式未指定登记一致），**非**由「seed 不烘焙」闭合。
 
@@ -238,7 +238,7 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 
 - 两配置项：`opt-level`（0–3，优化级别）、`overflow-checks`（bool，**整数溢出**检测）——二者为 **profile 锁定的固定值**（非用户可覆盖项，见下「固定值」条）。
 - **契约 / 约束 / `assert` / 边界检查不进 profile**：均为**无条件运行期检查**，不受 profile 调节——约束违约 panic `ConstraintViolation`（§92 #2 / §15.4）、`assert` / `unwrap` panic（§89 #3）、越界 panic `IndexOutOfBounds`（§17）、整数除零 panic `DivideByZero`（§90 #3）。§17 panic 表中**仅整数溢出**标注 `(debug)`（§90 #1，唯一 profile-gated 检查），其余均无 profile 限定。故**本表无 `debug-assertions` 配置项**（其无可控对象）；profile **锁定** `opt-level` 与整数溢出检测（不可覆盖，见下「固定值」条）——此与 RFC 0005 §7 release 行对齐（契约断言 **MUST** 启用、不可关闭）。
-- **固定值（profile 锁定、不可覆盖）**：debug `opt-level = 0` / `overflow-checks = true`（检测全开，§90 #1 debug panic）；release `opt-level = 3` / `overflow-checks = false`（§90 #1 release 二补数回绕规范语义）。在 `ail.toml` 写入非默认值（如 `[profile.release] overflow-checks = true`）为 **ail.toml 校验错误**——profile 承载 §90 #1 锁定的规范语义、不接受第三种溢出模式（避免产生既非 debug-panic 又非 release-回绕的未登记语义）；两键在 schema 中保留是为显式声明 profile 锁定的完整规范语义、非提供调参自由度。
+- **固定值（profile 锁定、不可覆盖）**：debug `opt-level = 0` / `overflow-checks = true`（检测全开，§90 #1 debug panic）；release `opt-level = 3` / `overflow-checks = false`（§90 #1 release 二补数回绕规范语义）。在 `ail.toml` 写入非默认值（如 `[profile.release] overflow-checks = true`）为 **ail.toml 校验错误**。**两键的锁定权威分承**：`overflow-checks` 的锁定源自 **§90 #1**（release 二补数回绕 / debug 溢出→panic 为规范锁定的两种溢出语义、profile 不接受第三种溢出模式——避免产生既非 debug-panic 又非 release-回绕的未登记语义）；`opt-level` 的锁定（debug=0 / release=3）则**非源自 §90 #1**——§90 #1 全文仅及整数溢出语义、零提及优化级别（`opt-level` 在冻结 AILANG.md 中不存在），其为 **RFC 0007 的工具链决断**：把优化级别与溢出语义**整体绑定**于 profile、保持 debug/release 两 profile 的语义整体性、避免「release 语义 + 低优化」等交叉配置引入未登记的 profile 子集（若未来需第三 profile 如 release-safe = opt-level=3 + overflow-checks=true，须经 Authorized RFC 显式新增 profile、非靠改默认值绕过）。两键在 schema 中保留是为显式声明 profile 锁定的完整规范语义、非提供调参自由度。
 - **安全性不变量**（RFC 0005 §7）：无论配置，安全代码不产生 UB；`overflow-checks=false` 仅切到 §90 #1 锁定的 release 回绕规范语义，非 UB。
 
 ---
@@ -304,14 +304,14 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 3. **有序 Map 变体**——§6.3 默认未指定；是否引入 `SortedMap<K,V>`（BTree，迭代=K 升序，需 Ord）作为标准库类型，留 review（性能 vs 确定性 trade-off）。
 4. **无效 UTF-8 迭代行为**——§8 声明 `string` 维持有效 UTF-8 不变量（构造即校验），故 `for ch in s` / `char_count()` 正常路径永不遇无效字节；`InvalidUtf8` panic 仅作该不变量的**防御性违约 panic**（已收敛为 panic，非两选一选项）。若未来引入非校验构造路径（如 unsafe 字节缓冲直接重解释），再议其解码失败语义。
 5. **char 与整数互转**——§7 `uint as char` 非法标量 panic；是否提供 `char::from_uint_safe() -> Optional<char>` 非 panic 路径，留 std API 设计。
-6. **Hash seed：运行期确定性 vs HashDoS 抗性**——§6.1 seed 运行期每进程生成（对齐 Rust `RandomState`，二进制可复现、与构建可复现性**无冲突**）；开放的是**运行期确定性** trade-off：是否为测试 / 回放提供 fixed-seed 运行期模式（同程序跨运行同序）。归属 `std.collections` / 后续 RFC（不再指向已收尾的 P0-4——后者未承接 Hasher seed）。
+6. **Hash seed：运行期确定性 vs HashDoS 抗性**——§6.1 seed 运行期每进程生成（对齐 Rust `RandomState`：seed 不烘焙入编译产物故**二进制可复现**，但 Hash 随机化会使编译器内部 set / Map 迭代序**跨构建变化**、**与字节级构建复现存在张力**——该张力已由 RFC 0009 §9.2「`.ailmeta` 数组字段必须预先规范化排序后序列化」规则闭合，见 §6.1 注）；开放的是**运行期确定性** trade-off：是否为测试 / 回放提供 fixed-seed 运行期模式（同程序跨运行同序）。归属 `std.collections` / 后续 RFC（不再指向已收尾的 P0-4——后者未承接 Hasher seed）。
 7. **`byte` 与数值类型的 cast 归属**——§7 当前把 `byte` 排除在 `as` 封闭集外（编译错误）。`byte` 为独立基础类型、符号性未声明（§15.1 / §77 codegen i8 signless），是否裁定为视同 `uint8`（无符号）或 `int8`（有符号）参与整数扩宽 / 收窄 / float→byte saturating、或维持编译错误改经 std 方法（如 `byte::from_int_safe()`），留独立 RFC。本 RFC 在该裁定前**不**把 `byte` 入 `as` 表（避免在符号性未定时擅自裁断 saturating 界）。
 
 ---
 
 ## 14. 收敛轨迹
 
-**Draft v1（本文）**——尚未跑对抗式 workflow。计划按 RFC 0001–0006 既有流程：多维度 workflow 审查（建议维度：求值序逐产生式完备性 / Drop 序与 §90 #5 一致性 / Hash trait 与 Eq 协调 / `as` 语义安全无 UB / 字符串 length·char·Eq 自洽 / build profile 与 §90 对齐 / 与 RFC 0005 交叉更新正确性 / 性能 trade-off 论证）+ 对抗式 verify，目标收敛 **0H / 0M / 0L**。
+**收敛轨迹**：已跑多轮对抗式 workflow（pass-2 → pass-14，与 RFC 0005/0006 同批 pipeline，每轮修正后 FRESH 重跑、无 `resumeFromRunId`）。历轮累计修正：pass-2 报 1H/1M/4L（6 条，含求值序逐产生式补全、Drop 序与 §90 #5 对齐、`as` saturating 语义）；pass-6/13 多轮（§8 `Iterator<char>` 改述推迟 std.collections 并移除 iter 行、§5 #3 move-into-callee Drop 例外、§6.1 Hash seed 归因修正、§8 byte→string）；**pass-14 报 1M/2L 并已全部修正**：① §9 opt-level 锁定权威分承——`overflow-checks` 源自 §90 #1、`opt-level`（冻结规范不存在）为 RFC 0007 工具链决断（M）；② §6.1 `Display` 分类「运算类唯一例外」修正「非运算 trait」误标（与 §15.3 line 529/2974 + RFC 自身「带方法 = 运算」判据双重自洽）；③ §13 OQ #6 Hash seed「与构建可复现性无冲突」谬误残留 → 归因 RFC 0009 §9.2 预排序规则闭合（与 §6.1 / RFC 0009 §9.2/§12 三方定性统一）。post-pass-14 待 pass-15 复验收敛。审查维度：求值序逐产生式完备性 / Drop 序与 §90 #5 一致性 / Hash trait 与 Eq 协调 / `as` 语义安全无 UB / 字符串 length·char·Eq 自洽 / build profile 与 §90 对齐 / 与 RFC 0005 交叉更新正确性 / 性能 trade-off 论证。
 
 > 本批是「确定性」主题，验证重心在**语义决断的安全性与完备性**（尤其 float→int 永不 UB、求值序无遗漏 case），比 0006 的形式化更偏语义正确性。
 

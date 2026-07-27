@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（尚未跑对抗式 workflow；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑多轮对抗式 workflow pass-2–pass-14，post-pass-14 全部 findings 已修正、待 pass-15 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结规范**：§1–§94、56 关键字、110 决议均不变；P0-0 为规范工程治理层，优先级最高，可先于特性 RFC 合并）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-0**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 排定的第一优先级；其余一切补齐的元前提）|
@@ -226,7 +226,7 @@
 
 ## 14. 收敛轨迹
 
-**Draft v1（本文）**——尚未跑对抗式 workflow。计划按 RFC 0001–0004 既有流程：多维度 workflow 审查（建议维度：自洽性 / 冻结边界 / 交叉引用悬空 / 与 §90 §17 §25 对齐 / 中文术语一致性 / RFC 2119 映射准确性 / glossary 完备性 / normative-informative 划分正确性）+ 对抗式 verify，目标收敛 **0H / 0M / 0L**。
+**收敛轨迹**：已跑多轮对抗式 workflow（pass-2 → pass-14，与 RFC 0006/0007 同批 pipeline，每轮修正后 FRESH 重跑、无 `resumeFromRunId`）。历轮累计修正：pass-3 H1 §3 Conformance 引用重定向到 normative 来源（MUST/SHOULD 仅引 normative）；pass-13 §5 增「无标签条目兜底」条款（§83 决议记录 I 10 项无标签条目视作资料性索引、规范性权威由指针承载，闭合标签分类盲区）；其余多轮 M/L（行为四分法 / build profile / RFC 2119 映射 / glossary / normative-informative 分区）。**pass-14 报 0 条 confirmed**（RFC 0005 本 pass clean，自 pass-3 修正后持续收敛、无回归）。post-pass-14 全部历轮 findings 已修正、待 pass-15 复验收敛。审查维度：自洽性 / 冻结边界 / 交叉引用悬空 / 与 §90 §17 §25 对齐 / RFC 2119 映射准确性 / glossary 完备性 / normative-informative 划分正确性 / 行为四分法 soundness。
 
 > 由于本 RFC 是元规则层（无代码、无文法、无算法），验证重心在**规范文本自洽与交叉引用完整性**，而非 0001–0004 的实现可行性——这降低了验证复杂度，预期收敛轮次少于特性 RFC。
 
