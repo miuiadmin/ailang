@@ -91,7 +91,7 @@ synthesis §4 的**交叉印证矩阵**是全场可信度最高的必修项—�
 
 1. **局部变量（locals）**：作用域内的局部变量按**逆声明序** drop（后声明的先释放——栈序，LIFO）。
 2. **临时值**：表达式求值产生的临时值（如 `f(g(), h())` 的中间结果）按**构造逆序** drop。
-3. **调用实参临时值**：实参按左到右求值（§4）后，在函数返回后**逆序** drop。
+3. **调用实参临时值**：实参按左到右求值（§4）后，彼此按求值逆序 drop（即 `h()` 先于 `g()` drop）；drop **时点**由 #6 的完整表达式（full expression）作用域统一裁定（**不**在函数返回后立即 drop——与 #6 / #7 对齐 Rust Reference 的 full-expression lifetime 一致）。
 4. **混合序**：同一作用域内，locals 与临时值统一按**析构时点逆序** drop（后构造 / 后声明的先释放）；临时值的「析构时点 / 作用域」由 #6 的 lifetime 规则确定（语句级 vs 块级）。
 5. **panic 展开**：同序 drop（§89 #3 已有，保持）。
 6. **临时值作用域（lifetime）**：临时值在包围它的**完整表达式**（full expression——语句末 `;` 或最外层表达式边界）结束时 drop（对齐 Rust Reference / C++ temporary lifetime）。**例外**：若临时值被 `let` 初始化器 **move 进** local（直接成为该 local 的值），则**不构成临时值**（归入该 local 的逆声明序 #1）。**裸表达式语句**（§27 `stmt := … | expr`，如 `foo();` 丢弃返回值、`a + b;`）产生的非实参临时值，在**该语句末** drop（语句级作用域，不进入块级 locals 的混合序）。此规则给 #2 / #4 的「析构时点」提供确定作用域，使混合序可一致应用。
@@ -176,7 +176,7 @@ cast_expr := unary ("as" type)*         // x as int / x as float32 as f64（链�
 | `float` → 整数 | **saturating**（饱和界按目标类型 `T` 的极值，**非**写死有符号 `INT_MIN`/`INT_MAX`）：NaN → 0；`x < T::MIN` → `T::MIN`；`x > T::MAX` → `T::MAX`；否则**向零截断**（trunc）。对**有符号**目标 `T::MIN`/`T::MAX` = 该宽度的有符号极值（如 `int8`: −128/127）；对**无符号**目标 **`T::MIN` = 0**（负浮点饱和到 0，如 `(-1.5) as uint8 = 0`）、**`T::MAX` = 2^N−1**（如 `300.0 as uint8 = 255`、`1e300 as uint64 = UINT64_MAX = 2^64−1`）。对齐 Rust `as` + WebAssembly `trunc_sat`（有符号 / 无符号变体），**永不 UB** |
 | 整数 → `float` | 精确（小整数）或 IEEE 754 round-to-nearest（大整数失精度，定义行为） |
 | `float32` ↔ `float64` | 精确（f32→f64）或 round-to-nearest（f64→f32） |
-| `bool` ↔ 数值 | **禁止**（编译错误）——避免 C 的隐式 bool 真值陷阱。`if` 为语句（§27）、不产出值，故 `(if b 1 else 0)` **非合法 AILang**；需数值化时用 std.core 方法 `b.to_int()`（`true→1` / `false→0`），或在函数体内用 `match` |
+| `bool` ↔ 数值 | **禁止**（编译错误）——避免 C 的隐式 bool 真值陷阱。`if` 为语句（§27）、不产出值，故 `(if b 1 else 0)` **非合法 AILang**；需数值化时在函数体内用 `match`（如 `match b { true => 1, false => 0 }`）——是否提供 std 便利方法（如 `bool::to_int()`）留 std API 设计，非本 RFC `as` 转换范畴 |
 | `char` ↔ 整数（任意宽度/符号） | `char as <整数类型>` = Unicode 标量值（零扩展到目标宽度；目标过窄则按整数收窄规则截断，定义行为）；`<整数类型> as char` 取值须为合法标量值（U+0000–U+10FFFF，非 surrogate），否则 panic `InvalidCodePoint`（签名类型负值必失败） |
 
 > **合法转换集为封闭集合**：`as` **仅**支持上表所列转换（基础数值类型之间、与 `char` / `bool` 之间）；所有其他 `as` 转换（含 `char` ↔ `float`、enum 判别值、`raw_pointer<T>` ↔ `raw_pointer<U>` / ↔ 整数、struct / `Optional` ↔ 数值等）均为**编译错误**。**`byte` 亦不在此封闭集**——`byte` 为独立基础类型（§15.1，非 `int8`/`uint8` 别名、无符号性声明，§77 仅作 codegen i8 signless 映射、不构成语言层符号裁定），其与数值类型的转换（`int as byte` / `byte as int` / `float as byte` 等）**当前为编译错误**，须待 `byte` 符号性裁定后由独立 RFC 定义（开放问题 #7）；闭合「表外无未定义转换」的 soundness 论证。`raw_pointer` 相关 cast 属 unsafe 域（§25.1 / §90 #4），不入本表——闭合「安全代码永不 UB」的 soundness 论证（表外无未定义转换）。
@@ -236,9 +236,9 @@ opt-level = 3              # 优化级别（3=最高）
 overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规范语义）
 ```
 
-- 两配置项：`opt-level`（0–3，优化级别）、`overflow-checks`（bool，**整数溢出**检测）。
-- **契约 / 约束 / `assert` / 边界检查不进 profile**：均为**无条件运行期检查**，不受 profile 调节——约束违约 panic `ConstraintViolation`（§92 #2 / §15.4）、`assert` / `unwrap` panic（§89 #3）、越界 panic `IndexOutOfBounds`（§17）、整数除零 panic `DivideByZero`（§90 #3）。§17 panic 表中**仅整数溢出**标注 `(debug)`（§90 #1，唯一 profile-gated 检查），其余均无 profile 限定。故**本表无 `debug-assertions` 配置项**（其无可控对象）；profile 仅调节 `opt-level` 与整数溢出检测——此与 RFC 0005 §7 release 行对齐（契约断言 **MUST** 启用、不可关闭）。
-- debug 默认值固定（检测全开）；release 的 `overflow-checks` 固定 false（切到 §90 #1 回绕规范语义）。
+- 两配置项：`opt-level`（0–3，优化级别）、`overflow-checks`（bool，**整数溢出**检测）——二者为 **profile 锁定的固定值**（非用户可覆盖项，见下「固定值」条）。
+- **契约 / 约束 / `assert` / 边界检查不进 profile**：均为**无条件运行期检查**，不受 profile 调节——约束违约 panic `ConstraintViolation`（§92 #2 / §15.4）、`assert` / `unwrap` panic（§89 #3）、越界 panic `IndexOutOfBounds`（§17）、整数除零 panic `DivideByZero`（§90 #3）。§17 panic 表中**仅整数溢出**标注 `(debug)`（§90 #1，唯一 profile-gated 检查），其余均无 profile 限定。故**本表无 `debug-assertions` 配置项**（其无可控对象）；profile **锁定** `opt-level` 与整数溢出检测（不可覆盖，见下「固定值」条）——此与 RFC 0005 §7 release 行对齐（契约断言 **MUST** 启用、不可关闭）。
+- **固定值（profile 锁定、不可覆盖）**：debug `opt-level = 0` / `overflow-checks = true`（检测全开，§90 #1 debug panic）；release `opt-level = 3` / `overflow-checks = false`（§90 #1 release 二补数回绕规范语义）。在 `ail.toml` 写入非默认值（如 `[profile.release] overflow-checks = true`）为 **ail.toml 校验错误**——profile 承载 §90 #1 锁定的规范语义、不接受第三种溢出模式（避免产生既非 debug-panic 又非 release-回绕的未登记语义）；两键在 schema 中保留是为显式声明 profile 锁定的完整规范语义、非提供调参自由度。
 - **安全性不变量**（RFC 0005 §7）：无论配置，安全代码不产生 UB；`overflow-checks=false` 仅切到 §90 #1 锁定的 release 回绕规范语义，非 UB。
 
 ---
