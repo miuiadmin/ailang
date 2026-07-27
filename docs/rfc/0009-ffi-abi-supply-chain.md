@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（尚未跑对抗式 workflow；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2，post-pass-2 全部 11 findings 已修正、待 pass-3 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结语义决断**：§1–§94 语义、56 关键字、110 决议均不变。**两处显式扩展**：① §27 `layout` 产生式体扩展（`layout(C)` → 可组合 `layout(C + packed + align(N))`，类比 RFC 0006 对 `stmt`/`call` 的产生式体扩展、属 Authorized RFC 演进通道 RFC 0005 §9）；② `extern` 的 `ident` 收紧为封闭 ABI 集合（名字解析校验、文法不变）。`CStr`/`CString` 为 std.ffi 类型、`size_of`/`align_of`/`offset_of` 为编译期内征（同 `panic`/`assert` 先例）、`ail.lock` 为工具链文件——均非关键字、零新关键字）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-4**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第五/末优先级；§4 交叉印证 #6「FFI 封送/ABI 未规范，printf 示例自触 UB」+ #11「供应链 lockfile/签名/可复现构建缺失」；[`deep-review-2026-07.md`](../research/deep-review-2026-07.md) §6.1 包供应链 1.5 全规范最薄弱环 + §5.4 可观测维度 FFI UB 风险；[`spec-maturity-2026-07.md`](../research/spec-maturity-2026-07.md) §4.4 ABI/FFI 2.0 全规范最薄弱层 + §4.6 工具链 2.5）|
@@ -66,16 +66,16 @@
 | 原始浮点 | `float32`、`float64` | IEEE 754、C 兼容 |
 | 裸指针 | `raw_pointer<T>`（`T` 须 FFI-safe） | 仅 `unsafe` 内解引用（§25.1）；`Copy` |
 | C 布局 struct | `layout(C) struct`（全部字段 FFI-safe） | 按值或 `borrow` 跨界 |
-| 固定布局数组 | `Array<T, const N>`（`T` 须 FFI-safe） | **内联 `[T × N]` 固定布局**（§77 line 3095；非堆 COW、非 `List/Map/Set`）；§25.4 `layout(C) struct Packet { data: Array<byte,256> }` 既有用法 |
+| 固定布局数组 | `Array<T, const N>`（`T` 须 FFI-safe） | **内联 `[T × N]` 固定布局**（§77 line 3095；非堆 COW、非 `List/Map/Set`）；FFI-safe **限定作 `layout(C)` struct 字段**（§25.4 `layout(C) struct Packet { data: Array<byte,256> }` 既有用法）——**裸 `extern` 参数 / 返回的 `Array<T,N>` 封送（C 数组 decay vs 按值聚合 ABI）v0.3 未规约**，留开放问题 #10 |
 | 透明包装 | `layout(transparent) struct`（单字段，字段须 FFI-safe） | 继承字段 ABI（§7.2）；newtype FFI 包装（如 `CStr`） |
-| C 串 | `CStr` / `CString`（`layout(transparent)` over `raw_pointer<byte>`，§6） | NUL 终结 C 串，封送为 `const char*` |
+| C 串 | `CStr`（`layout(transparent)` over `raw_pointer<byte>`，§6.2） | NUL 终结 C 串，按值封送为 `const char*`（**仅 `CStr`**——`CString` 为 2-field owning 内部表示、非 FFI-safe，见下非白名单集） |
 | `void` | 仅返回 | 无值返回 |
 
 > **`layout(C) enum` 不入白名单**：§27 enum 产生式为 `enum := "enum" ident "{" variant* "}"`（**无 `layout?` 前缀**，仅 `struct` 接 `layout`），§77 enum = `tag + data`（tagged union，布局不稳）；§25.1 line 1378 明定 FFI 变体对接用「`enum` tagged union + `layout(C)` struct」——即 C 侧变体用 **`layout(C) struct`**（非 `layout(C) enum`）。故白名单不含「C 布局 enum」行（原 Draft 误列）；若未来需 C 式整数 repr enum，须先扩展 §27 enum 产生式（Authorized RFC 通道），留开放问题 #8。
 >
 > **C 函数指针（回调）推迟**：白名单不含 `extern fn pointer`——v0.2.1 无独立函数指针类型语法（§27 `fn` 仅声明、无 first-class fn-pointer 类型）。回调 C 需先引入函数指针类型，留开放问题 #9。
 
-**非 FFI-safe（`extern` 签名中拒绝，触发 `AIL8001`）**：`string`（胖指针 `{i64 len, i8* ptr}`、无 NUL，§77）、`List`/`Map`/`Set`（堆 COW、布局不稳）、`Optional<T>`/`Result<T,E>`（tagged、布局不稳）、`enum`（tagged union、布局不稳，§77；FFI 变体用 `layout(C) struct` 而非 enum，见上）、semantic 名义类型（§15.3：**若其 base 为 FFI-safe，则按 §77「codegen 同 base 布局」继承 base ABI、视为 FFI-safe**；base 非 FFI-safe 则随 base 拒绝）、泛型 struct（除非单态化为 `layout(C)`/`layout(transparent)` 且全部字段 FFI-safe）、trait 对象（`dyn`）、`TaskHandle`/`Channel`/`ActorHandle`（运行时句柄）。
+**非 FFI-safe（`extern` 签名中拒绝，触发 `AIL8001`）**：`string`（胖指针 `{i64 len, i8* ptr}`、无 NUL，§77）、**`CString`**（2-field owning `{buf: raw_pointer<byte>, len: uint64}`、非 `layout(transparent)` 单字段——内部表示、drop 释放分配，§6.2 明定不经 `extern`）、`List`/`Map`/`Set`（堆 COW、布局不稳）、`Optional<T>`/`Result<T,E>`（tagged、布局不稳）、`enum`（tagged union、布局不稳，§77；FFI 变体用 `layout(C) struct` 而非 enum，见上）、semantic 名义类型（§15.3：**若其 base 为 FFI-safe，则按 §77「codegen 同 base 布局」继承 base ABI、视为 FFI-safe**；base 非 FFI-safe 则随 base 拒绝）、泛型 struct（除非单态化为 `layout(C)`/`layout(transparent)` 且全部字段 FFI-safe）、trait 对象（`dyn`）、`TaskHandle`/`Channel`/`ActorHandle`（运行时句柄）。
 
 > 注：`Array<T, const N>` 之前 Draft 误归「堆 COW」非 FFI-safe——实为 §77 内联固定布局（与 `List`/`Map`/`Set` 的堆 COW 不同），且 §25.4 既有 `layout(C) struct Packet { data: Array<byte,256> }` 已将其作 FFI-safe 使用，故修正归入白名单（递归约束 `T` 须 FFI-safe）。
 >
@@ -92,12 +92,14 @@
 | abi | 语义 |
 |---|---|
 | `c` | C 调用约定（平台默认 C ABI） |
-| `system` | 平台默认（Linux/macOS = sysv64、Windows = win64）——跨平台可移植默认 |
+| `system` | **平台默认 ABI（按目标三元组）**：x86_64 Linux/macOS/BSD = sysv64、x86_64 Windows = win64、aarch64 Linux/macOS = AAPCS64、Windows aarch64 = AAPCS64——跨平台可移植默认（具体映射由 ailc 按目标三元组决定；目标三元组枚举留开放问题 #11） |
 | `stdcall` / `fastcall` / `vectorcall` | Windows 特定约定 |
 | `aapcs` | ARM ABI |
 | `c_unwind` | opt-in 跨边界继续展开（**v0.3 不入有效集合**——名字解析校验时视为越界 ident，触发 `AIL8002 abi-mismatch`；当前 panic 跨 FFI→abort §8；`c_unwind` opt-in 留 §15 开放问题 #2） |
 
 > **v0.3 有效 ABI 集合** = `{ c, system, stdcall, fastcall, vectorcall, aapcs }`（封闭、可枚举）；`c_unwind`（§15 #2）与 `rust`（§15 #3）为**显式排除**项（非有效集合成员、名字解析即拒）。`extern ident` 的 `ident` 越此集合 = `AIL8002 abi-mismatch` 编译错误。
+>
+> **`system` 与平台 ABI 的语义重合**：`system` 在 aarch64 目标上 ≡ `aapcs`（同为 AAPCS64）、在 x86_64 Linux/macOS 上 ≡ `c`（同为 sysv64）——此重合是**预期行为、非冗余**：`system` 表达「跨平台可移植默认」意图（不钉死 ABI、随目标三元组），具体 ABI 名（`aapcs`/`stdcall`/...）表达「钉死某一 ABI」意图。二者在不同语境下各有用途，名字解析均接受（均属有效集合）。
 
 - §27 文法 `extern := "extern" ident "{" extern_fn* "}"` **不变**——`ident` 经名字解析校验为封闭集合成员（同 RFC 0006 §8 名字解析的类别校验思路）。
 - §25.3 的 `extern rust { ... }` 空壳：**移除或推迟**——v0.3 仅规范 C ABI（`c`/`system` 及平台特定）；Rust ABI（非稳定、内部实现细节）不入封闭集合，留开放问题 #3。
@@ -154,7 +156,21 @@ fn main() -> void {
 }
 ```
 
-> 落地时 §25.3 / §61 的 printf 示例替换为上述 `puts` 形（或保留 printf 并显式标注「示意、非规范合规、变参见 §7 推迟」）。规范不再用自身示例演示自身 ABI 不成立。
+> 落地时 §25.3 / §61 的 printf 示例**替换**为上述 `puts` 形（对齐 §2 设计目标 3「printf **必须**（MUST）改为规范合规形」）——规范不再用自身示例演示自身 ABI 不成立。原 printf 形（`extern c { fn printf(text: string) }`：`string` 非 FFI-safe + 变参禁 §7.1）**移除**，不留「保留 printf 仅标注示意」的退路（该退路与 §2 MUST 目标矛盾）。
+
+### 6.4 `borrow` 跨 FFI 的一般规则
+
+`extern` 参数的 `borrow`（借用）传递模式跨 FFI 的合法性**仅对 `layout(C) struct` 成立**——`borrow T` 跨 FFI 封送为「指向 T 的指针」（C `T*`），前提是 T 为 `layout(C)` struct（C 兼容布局，指针可被 C 侧解引用）。**其他 FFI-safe 类型一律按值跨界，`borrow` 参数 = `AIL8004 ffi-marshalling` 编译错误**：
+
+| 类型 | `borrow` 跨 FFI 判定 | 理由 |
+|---|---|---|
+| `layout(C) struct` | **合法**（按值或 `borrow`） | C 兼容聚合，`borrow` = `T*`（C 侧可解引用） |
+| 原始整数 / 浮点 / `bool` / `byte` | **拒绝**（`AIL8004`） | C 无「引用整数」标准 ABI；欲传指针须显式 `raw_pointer<T>` |
+| `raw_pointer<T>` | **拒绝**（`AIL8004`） | 本身即指针，`borrow raw_pointer<T>` = 指向指针的指针（双重间接）；欲传 `T**` 用 `raw_pointer<raw_pointer<T>>` |
+| `Array<T,N>` | **拒绝**（`AIL8004`） | 裸 `borrow Array` 封送未规约（开放问题 #10）；仅作 `layout(C)` struct 字段时随 struct 借用 |
+| `layout(transparent) struct`（含 `CStr`） | **拒绝**（`AIL8004`） | `borrow` transparent = 指向单字段 struct 的指针（双重间接，§6.2 CStr 已禁）；一律按值（transparent 按值 = 字段 ABI） |
+
+**判定准则**：`borrow` 跨 FFI **当且仅当** T 为 `layout(C)` struct（C 聚合的可借用性）；其余 FFI-safe 类型按值跨界。此准则闭合「transparent 指针型 newtype 的 `borrow` 双重间接 UB」一类漏洞（`CStr` 为典型例，§6.2）。
 
 ---
 
@@ -189,6 +205,7 @@ layout      := "layout" "(" layout_spec ( "+" layout_spec )* ")"     // 可组�
 | `transparent` | 目标 struct **恰好 1 个字段**（0 或 ≥2 字段非法） | `layout(transparent) struct Empty {}` / `struct Pair(A,B)` → `AIL8003` |
 | `align(N)` | `N` 为正整数且为 **2 的幂**（`1, 2, 4, 8, 16, …`，≤ 平台最大对齐） | `align(3)` / `align(0)` → `AIL8003` |
 | `packed` + `align(N)` | `packed` 移除填充（字段间无 padding、struct 对齐 = 1）；与 `align(N)`（N>1）**互斥**（packed 强制对齐 1，align 强制 N>1，二者矛盾） | `layout(packed + align(16))` → `AIL8003` |
+| `packed` + `transparent` | `transparent` 要求继承单字段**自然 ABI**（含字段对齐），`packed` 强制对齐 = 1——二者矛盾（packed 抹去 transparent 字段的对齐前提），**互斥**（对齐 Rust `#[repr(packed, transparent)]` 拒收） | `layout(packed + transparent) struct W(byte*)` → `AIL8003` |
 | `C` + `transparent` | 合法但 `C` 冗余（transparent 单字段已 C 兼容）——允许、告警级提示 | — |
 | `C` + `packed` | 合法（C 排列 + 去填充，二进制协议常用） | — |
 | `layout` 适用目标 | 仅 `struct`（§27 `struct := layout? "struct" ...`）；**enum / type_alias / interface / trait 不接 `layout`** | `layout(C) enum E {...}` → `AIL8003`（enum 无 layout 前缀，见 §4 注） |
@@ -261,9 +278,9 @@ integrity = "sha256-..."
 - **MVS（最小版本选择）**：从 `ail.toml` 的 semver 约束，选满足全部约束的**最低**版本（对标 cargo），写入 `ail.lock`。
 - `ail update`：重解析、更新 `ail.lock` 到符合约束的最新（**显式**操作，非每次构建隐式漂移）。
 - **可复现构建**：`ail.lock` 在 → 同源码 + 同 lock → **字节一致的依赖闭包** → 闭合 deep-review §6.1「语言层钉死确定性、依赖层放任漂移」矛盾。
-- **`.ailmeta` 字节级确定性保证**（闭合「set/Map 派生数组序不稳」漏洞）：`.ailmeta` 中**所有数组字段**（`effects[]` / `errors[]` / `imports[]` / `examples[]` / `properties[]` 等，§24）的序列化**必须**为**规范化有序**——按字段自然序（字符串字典序 / 数值序）**预先排序后**再序列化，**不得**按内存中 set/Map 的迭代序（后者由 RFC 0007 §6 显式登记为**未指定**、且 Hash seed 随机化 → 直接序列化会破坏字节级复现）。`.ailmeta` 顶层字段序固定（§78）+ 数组字段规范化有序 + 依赖闭包固定 → 构建产物**字节级确定性**。（此条确立 `.ailmeta` 确定性义务的**规范性来源**——§78 仅为 Part IV 资料性实现层描述，见 §10 / RFC 0005 §3 #3。）
+- **`.ailmeta` 字节级确定性保证**（闭合「set/Map 派生数组序不稳」漏洞）：`.ailmeta` 中**所有数组字段**（`effects[]` / `errors[]` / `examples[]` / `properties[]` 等，§24）的序列化**必须**为**规范化有序**——按字段自然序（字符串字典序 / 数值序）**预先排序后**再序列化，**不得**按内存中 set/Map 的迭代序（后者由 RFC 0007 §6 显式登记为**未指定**、且 Hash seed 随机化 → 直接序列化会破坏字节级复现）。`.ailmeta` 顶层字段序固定（§78）+ 数组字段规范化有序 + 依赖闭包固定 → 构建产物**字节级确定性**。（此条确立 `.ailmeta` **数组字段规范化有序**义务的规范性来源——为 §9.2 新立义务、闭合 RFC 0007 §6 矛盾；**顶层字段序固定**义务的来源为 RFC 0005 §3 #3（§3 #3 原文「固定字段排序」仅指顶层字段序）；§78 仅为 Part IV 资料性实现层描述、不构成本义务权威，见 §10。）
 
-> deep-review §6.1 明言「缺的是连接，不是构件」——§78 确定性输出 + §31 强制随包源码已就位，加 `ail.lock` 记哈希**显著降低**元数据伪造与下发篡改两类攻击面（非完全闭合——首次 registry 拉取的 TOFU 信任、作者签名 / 账号接管仍为残留缺口，见 §11 #5 签名推迟）。
+> deep-review §6.1 明言「缺的是连接，不是构件」——§78 确定性输出 + §31 强制随包源码已就位，加 `ail.lock` 记哈希**显著降低**元数据伪造与下发篡改两类攻击面（**非完全闭合**——残留缺口**至少包括**：首次 registry 拉取的 TOFU 信任、作者签名 / 账号接管、以及 **registry 自身被入侵**（§10 把 `.ailmeta` 权威集中于 registry、§32 消费方不重建、§9.1 `integrity` 哈希覆盖**源码归档**而非 `.ailmeta` 文本，故被入侵 registry 可下发伪造 `.ailmeta` 而不被消费方检出），见 §11 #4 / #5 签名推迟）。
 
 ---
 
@@ -271,7 +288,7 @@ integrity = "sha256-..."
 
 落地形态：§32 / §42 扩展 + registry 治理规则。
 
-**决断**：发布包的 `.ailmeta` **不以作者提交件为权威**——registry（包仓库）从**随包源码**（§31 强制）重新编译生成 `.ailmeta`，**以重建件为权威**（docs.rs 范式）。此为 RFC 2119 **必须（MUST）** 级义务：registry **必须**以重建件为消费方下载的 `.ailmeta` 真源，**不得**直接转发作者提交的 `.ailmeta`（若作者提交件与重建件分歧，**必须**以重建件为准、拒绝发布或告警）。
+**决断**：发布包的 `.ailmeta` **不以作者提交件为权威**——registry（包仓库）从**随包源码**（§31 强制）重新编译生成 `.ailmeta`，**以重建件为权威**（docs.rs 范式）。此为 RFC 2119 **必须（MUST）** 级义务：registry **必须**以重建件为消费方下载的 `.ailmeta` 真源，**不得**直接转发作者提交的 `.ailmeta`（若作者提交件与重建件分歧，**必须**以重建件为准、**必须拒绝发布**该版本——「告警但放行」不满足 MUST 级信任链义务，分歧本身即篡改信号）。
 
 ```
 作者发布 → registry 收源码 + ail.toml
@@ -279,10 +296,10 @@ integrity = "sha256-..."
         → 重建件为权威（消费方下载的 .ailmeta = registry 重建件，非作者提交）
 ```
 
-> **`.ailmeta` 确定性的规范性来源**（消除「§78 作权威」的分区冲突）：`.ailmeta` 字段集与 schema 的规范性来源为 **§24**（`.ailmeta` schema），其**确定性输出义务**（顶层字段序固定 + 数组字段规范化有序 → 字节级复现）由**本 RFC §9.2 确立为规范性义务**（对齐 RFC 0005 §3 #3 Conformance：「生成符合 §24 schema 的 `.ailmeta`…输出确定性（固定字段排序）」——该确定性要求由 RFC 0005 §3 #3 为权威来源，**§78 仅为 Part IV 资料性的实现层排序描述、不构成本义务权威**，与 RFC 0005 §5 normative/informative 分区一致）。
+> **`.ailmeta` 确定性的规范性来源**（消除「§78 作权威」的分区冲突）：`.ailmeta` 字段集与 schema 的规范性来源为 **§24**（`.ailmeta` schema）。确定性输出义务**分两层、各承其源**：① **顶层字段序固定**义务的权威来源为 **RFC 0005 §3 #3** Conformance（「生成符合 §24 schema 的 `.ailmeta`…输出确定性（固定字段排序）」）——该义务**非本 RFC 首创**；② **数组字段规范化有序**义务为本 RFC **§9.2 新增**（RFC 0005 §3 #3 仅及顶层字段序、未及数组内部元素序）——补全「Hash 随机化下 set/Map 迭代序不可复现」的最后一公里。两层叠加 → 字节级复现。**§78 仅为 Part IV 资料性的实现层排序描述、不构成任一层义务的规范性权威**（与 RFC 0005 §5 normative/informative 分区一致）。
 - **闭合「手改 effects/is_pure 让 AI 跳过防御」**：作者无法伪造 `.ailmeta`——任何字段篡改在 registry 重建时被覆盖。
 - **完整性**：重建件哈希进 `ail.lock` `integrity`（§9.1 定义哈希对象）——消费方校验，防下发篡改。
-- **配合 lockfile**：deep-review §6.1 末两类攻击面（元数据伪造 / 下发篡改）由「registry 重建 + lockfile 哈希」**显著降低**（非完全闭合——首次 TOFU 信任 + 作者签名 / 账号接管为残留缺口，见 §11 #5）。
+- **配合 lockfile**：deep-review §6.1 末两类攻击面（元数据伪造 / 下发篡改）由「registry 重建 + lockfile 哈希」**显著降低**（**非完全闭合**——残留缺口见 §11 #4 / #5：首次 TOFU 信任、作者签名 / 账号接管、**以及 registry 自身被入侵**。本 §10 把 `.ailmeta` 权威集中于 registry，§9 `integrity` 哈希覆盖**源码归档**而非 `.ailmeta` 文本、§32 消费方不重建——故**被入侵 registry 可下发伪造 `.ailmeta` 而不被消费方检出**，密码学签名为其唯一长期闭合手段、推迟至 §11 #4/#5）。
 - **作者签名 / 账号接管**：仍为独立缺口（非本 RFC 闭合），留 §11 签名推迟。
 
 > 此决断使 §5.1/§78「AI 可信任 `.ailmeta` 如同类型签名」从**教义**升级为**可验证信任链**：信任源于 registry 确定性重建（可复算，义务由 RFC 0005 §3 #3 + 本 RFC §9.2 承载），而非作者自报。
@@ -298,7 +315,7 @@ integrity = "sha256-..."
 1. **既有 4 步静态扫描保留**（与 §42 line 2005–2011 逐一对应：**包扫描（package scan）/ 类型安全（type safety）/ unsafe 审计（unsafe usage）/ 依赖审计（dependency audit）**——非「effect 策略 / 错误完整性」，后者为旧 Draft 误述）。
 2. **provenance（出处记录）**：发布生成构建出处记录（SBOM-lite）——依赖闭包（来自 `ail.lock`）+ 构建环境（编译器版本 / 目标三元组）+ 校验和（§9.1 定义），**随包发布、可审计**。
 3. **registry 治理**：registry 重建 `.ailmeta`（§10）+ 拒绝「重建件与声明 `.ailmeta` 分歧」的包（篡改检测）+ 强制 `ail.lock` 完整性校验。
-4. **签名（诚实推迟）**：v0.3 **不引入**密码学签名——std.crypto 仍为占位（§33.1），无成熟签名原语可用。provenance 记录**无签名**（仅校验和 + 闭包），防伪造/篡改靠 §10 registry 重建 + §9 lockfile 哈希。**正式签名（sigstore 式）推迟至 std.crypto 成熟**（开放问题 #5），明文登记为 gap，不假装已实现。
+4. **签名（诚实推迟）**：v0.3 **不引入**密码学签名——std.crypto 仍为占位（§33.1），无成熟签名原语可用。provenance 记录**无签名**（仅校验和 + 闭包），防伪造/篡改靠 §10 registry 重建 + §9 lockfile 哈希。**残留缺口诚实登记**：§10 把 `.ailmeta` 权威集中于 registry、§9 `integrity` 哈希覆盖**源码归档**而非 `.ailmeta` 文本、§32 消费方不重建——故**被入侵的 registry 可下发伪造 `.ailmeta` 而不被消费方检出**（首次 TOFU 信任 + 作者签名 / 账号接管同理），此为签名推迟的直接代价。**正式签名（sigstore 式）推迟至 std.crypto 成熟**（开放问题 #5），明文登记为 gap，不假装已实现。
 
 > 对标 cargo（Cargo.lock + sigstore）/ go modules（go.sum + 校验和 DB）/ npm（package-lock + provenance）。v0.3 达到「校验和 + 重建权威」最小闭环；签名为下一台阶。
 
@@ -329,13 +346,14 @@ integrity = "sha256-..."
 | §4 `string` 非 FFI-safe | §77 string=`{i64 len, i8* ptr}` 无 NUL | ✅ 一致（printf UB 根因） |
 | §4 `Array<T,const N>` FFI-safe | §77 line 3095 内联 `[T×N]` 固定布局 + §25.4 `layout(C) struct Packet { data: Array<byte,256> }` 既有用法 | ✅ 修正旧 Draft 误归「堆 COW」（Array 内联、非 List/Map/Set） |
 | §4 不含 `layout(C) enum` | §27 `enum := "enum" ident "{" variant* "}"`（无 `layout?` 前缀）/ §25.1 用 `layout(C) struct` 对接 FFI 变体 | ✅ enum tagged union 非白名单；C 式 enum repr 留 §15 #8 |
-| §4 semantic 继承 base FFI-safety | §77 line 3099 semantic「codegen 同 base 布局」 | ✅ 消除旧「除非 transparent」不可达子句 |
+| §4 semantic 继承 base FFI-safety | §77 line **3098** semantic「codegen 同 base 布局」（3099 为 `Optional<T>`） | ✅ 消除旧「除非 transparent」不可达子句 |
 | §4 不含 fn pointer | §27 `fn` 仅声明、无 first-class fn-pointer 类型 | ✅ 回调推迟 §15 #9 |
 | §5 封闭 ABI 集合（v0.3 有效集 6 项） | §25.3 `extern c/rust`（rust 推迟 §15 #3）/ c_unwind 推迟 §15 #2 | ✅ 收紧 ident + 越界 AIL8002 |
 | §5 `extern ident` 文法不变 | §27 `extern := "extern" ident { }` | ✅ 名字解析校验 |
 | §6 CStr = `layout(transparent)` | §7.2 transparent 单字段透传 / §4 白名单 | ✅ 按值封送 = `const char*`（消除 layout(C) 双重间接 UB） |
+| §4 `CString` 非 FFI-safe（白名单仅 `CStr`） | §6.2 `CString { buf, len }` 2-field owning（非 transparent 单字段） | ✅ 白名单 C 串行仅列 `CStr`；`CString` 入非 FFI-safe 拒绝集（消解「CStr/CString 同为 transparent FFI-safe」三方矛盾：§4 白名单 vs §6.2 2-field vs §7.2 单字段规则） |
 | §6.1 string ABI `{i64 len, i8* ptr}` | §77 line 3093 | ✅ 明确化（修正旧 Draft 误用 `uintptr`——非规范类型） |
-| §7.2 layout 产生式体扩展 + 组合合法性 | §27 `layout "(" ident ")"`（显式演进） | ⚠️ 文法体扩展（标注）+ 7 条 AIL8003 校验规则 |
+| §7.2 layout 产生式体扩展 + 组合合法性 | §27 `layout "(" ident ")"`（显式演进） | ⚠️ 文法体扩展（标注）+ 8 条 AIL8003 校验规则（含 packed+transparent 互斥） |
 | §7.3 size_of/align_of/offset_of 返 `uint64` | 经 turbofish 调用（RFC 0006 §7）/ 同 panic 内征先例 | ✅ 零新关键字（修正旧 `uintptr`→`uint64`） |
 | §8 panic 跨 FFI→abort | §17 / §89 #3 / §90 #4 | ✅ 重申不变 |
 | §9.1 ail.lock `integrity` 哈希对象 = 源码归档字节 | §10 registry 从源码重建 / §31 强制随包源码 | ✅ 显式定义（消除「哈希什么」歧义） |
@@ -378,12 +396,16 @@ integrity = "sha256-..."
 7. **私有 registry / git 依赖**——§9 `source` 支持 registry URL；git 依赖 / path 依赖 / 私有 registry 的解析与校验细节留工具链实现。
 8. **`layout(C) enum`（C 式整数 repr enum）**——§4 白名单不含（§27 enum 无 `layout?` 前缀、§77 enum = tag+data tagged union）。若未来需对接 C enum / int 常量，须先扩展 §27 enum 产生式（Authorized RFC 通道）定义 `layout(C)` enum 的 C 整数 repr（fieldless 或显式判别式类型）。v0.3 用 `layout(C) struct` + 显式 tag 字段作替代，留 review。
 9. **C 函数指针（回调）**——§4 白名单不含 `extern fn pointer`（v0.2.1 无 first-class 函数指针类型语法）。回调 C 需引入函数指针类型（如 `extern "c" fn(byte*) -> void` 作类型），其与 `extern` fn 声明、闭包捕获的边界留 std.ffi 设计。
+10. **`Array<T,N>` 作裸 `extern` 参数 / 返回的 ABI**——§4 限定 `Array` 仅作 `layout(C) struct` 字段时 FFI-safe；作**裸** `extern` 参数或返回值（如 `extern "c" fn(Array<byte,4>) -> void`）的封送 ABI（C 数组按值？退化为指针？）v0.3 **未规约**，一律触发 `AIL8001 ffi-unsafe-type` 拒绝。若未来需裸传定长数组跨 FFI，须先定 ABI 惯例（对标 C「数组参数退化为指针」语义），留 review。
+11. **目标三元组与平台默认 ABI 的映射**——§5 `system` ABI 定义为「按目标三元组确定的平台默认 ABI」（aarch64 Linux/macOS = AAPCS64 等），但 ailc 的**目标三元组命名空间**（`<arch>-<vendor>-<os>-<env>` 格式、支持的目标列表、三元组→默认 ABI 映射表）v0.3 **未规约**，留工具链 / 后端 ABI 设计。此映射关乎可复现构建（§11 provenance 记录目标三元组）与 FFI ABI 选择的确定性。
 
 ---
 
 ## 16. 收敛轨迹
 
-**Draft v1 → pass-1（已完成）→ 修正后待 pass-2**。pass-1 对抗式 workflow（与 RFC 0008 并行）报 **2H / 10M / 9L = 21 条**（RFC 0009 部分），两条 H 已修正：① **Array FFI-safe 误归类**——§77 内联 `[T×N]` 非「堆 COW」，修正归入白名单（递归约束 T FFI-safe），对齐 §25.4 既有 `layout(C) struct Packet { data: Array<byte,256> }`；② **CStr 封送 UB**——`layout(C) struct CStr` 传 `borrow CStr` = 双重间接 → UB，改为 `layout(transparent) struct CStr` 按值封送为 `const char*`（puts 示例同步去 `borrow`）。其余 M/L 修正：移除悬空 `layout(C) enum` 白名单行 + fn pointer 推迟（§15 #8/#9）、semantic 继承 base FFI-safety（§77 codegen 同 base）、`uintptr`→`i64`/`uint64`（非规范类型）、§42 4 步校正（与 §42 line 2005–2011 一致）、c_unwind 引用 §7→§15 #2 + v0.3 有效 ABI 集、layout_spec 7 条组合合法性 + AIL8003、ail.lock integrity 哈希对象定义、`.ailmeta` 字节级确定性（数组规范化有序，闭合 RFC 0007 Hash 随机化矛盾）、§10 registry MUST 级 + §78→§24/RFC0005§3#3 权威重定向、TOFU/签名残留缺口措辞收紧、FFI 违规接入 AIL8xxx（非 6xxx）。待 pass-2 复验收敛 + regression。
+**Draft v1 → pass-1（已完成）→ 修正后待 pass-2**。pass-1 对抗式 workflow（与 RFC 0008 并行）报 **2H / 10M / 9L = 21 条**（RFC 0009 部分），两条 H 已修正：① **Array FFI-safe 误归类**——§77 内联 `[T×N]` 非「堆 COW」，修正归入白名单（递归约束 T FFI-safe），对齐 §25.4 既有 `layout(C) struct Packet { data: Array<byte,256> }`；② **CStr 封送 UB**——`layout(C) struct CStr` 传 `borrow CStr` = 双重间接 → UB，改为 `layout(transparent) struct CStr` 按值封送为 `const char*`（puts 示例同步去 `borrow`）。其余 M/L 修正：移除悬空 `layout(C) enum` 白名单行 + fn pointer 推迟（§15 #8/#9）、semantic 继承 base FFI-safety（§77 codegen 同 base）、`uintptr`→`i64`/`uint64`（非规范类型）、§42 4 步校正（与 §42 line 2005–2011 一致）、c_unwind 引用 §7→§15 #2 + v0.3 有效 ABI 集、layout_spec 8 条组合合法性（含 packed+transparent 互斥）+ AIL8003、ail.lock integrity 哈希对象定义、`.ailmeta` 字节级确定性（数组规范化有序，闭合 RFC 0007 Hash 随机化矛盾）、§10 registry MUST 级 + §78→§24/RFC0005§3#3 权威重定向、TOFU/签名残留缺口措辞收紧、FFI 违规接入 AIL8xxx（非 6xxx）。
+
+**pass-2 修正**（pass-1 对抗 workflow 复验报 11 条 confirmed，本批逐一修正）：① **`string` C 串封送三方矛盾**——白名单 C 串行仅列 `CStr`、`CString` 入非 FFI-safe 拒绝集（2-field owning 非 transparent 单字段），消解「CStr/CString 同为 transparent FFI-safe」与 §6.2/§7.2 的矛盾；② **裸 `Array` 跨 FFI**——§4 限定 `Array` 仅作 `layout(C) struct` 字段时 FFI-safe、裸 `extern` 参数/返回 v0.3 未规约（新增开放问题 #10）；③ **`system` ABI 定义**——改述为「按目标三元组确定的平台默认 ABI」（aarch64 Linux/macOS = AAPCS64）+ system≡aapcs 重叠说明（新增开放问题 #11 目标三元组命名空间）；④ **printf UB 退路**——移除「保留 printf 仅标注示意」退路（与 §2 MUST 目标矛盾）；⑤ **`borrow` 跨 FFI 一般规则**——新增 §6.4：`borrow` 跨 FFI 当且仅当 T 为 `layout(C) struct`，其余（含 transparent 指针型 newtype 如 `CStr`）→ `AIL8004`，闭合 transparent 双重间接 UB 一类；⑥ **packed + transparent 互斥**——§7.2 组合合法性增至 8 条（加 packed+transparent 互斥，对齐 Rust `#[repr(packed, transparent)]` 拒收）；⑦ **§10 registry 信任链**——分歧「拒绝发布或告警」收紧为 MUST 级「必须拒绝发布」、确定性义务权威分两层各承其源（顶层序 ← RFC 0005 §3 #3 / 数组规范化有序 ← 本 RFC §9.2）、**registry 自身被入侵**显式登记为残留缺口（§9.2/§10/§11 #4 三处呼应，签名为唯一长期闭合手段、推迟 #4/#5）；⑧ 自洽核查 §13 行号 3099→3098、加 `CString` 非 FFI-safe 行、组合合法性 7→8 条；⑨ §9.2 数组字段规范化义务来源与顶层字段序固定义务分离标注。待 pass-3 复验收敛 + regression。
 
 > 本批是「与外部世界交互的信任与确定性」主题，验证重心在**FFI 安全性（白名单是否真闭合、printf UB 是否真消除）与供应链 soundness（lockfile 是否真复现、信任链是否真闭合）**，比 0006 形式化、0007 确定性、0008 可观测更偏「跨边界正确性 + 攻击面闭合」。
 
