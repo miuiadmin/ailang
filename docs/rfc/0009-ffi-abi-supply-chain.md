@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4/pass-5/pass-6/pass-7，pass-6 报 5 confirmed [0H/2M/3L] 并已全部修正；**pass-7 报 4 confirmed [0H/0M/4L]**（§4 透明包装行「按值继承字段 ABI」对 `transparent+align(N)` 过强 + §7.2 缺该组合行 / §11#2 provenance 提交清单「仅源码+ail.lock」欠 §31 完整源码包 / §12 RFC 0007 回引同步注 stale——同步已 pass-19/9b315e2 落地）并已全部修正、待 pass-8 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4/pass-5/pass-6/pass-7/pass-8，pass-6 报 5 confirmed [0H/2M/3L] 并已全部修正；pass-7 报 4 confirmed [0H/0M/4L]（§4 透明包装行「按值继承字段 ABI」对 `transparent+align(N)` 过强 + §7.2 缺该组合行 / §11#2 provenance 提交清单「仅源码+ail.lock」欠 §31 完整源码包 / §12 RFC 0007 回引同步注 stale——同步已 pass-19/9b315e2 落地）并已全部修正；**pass-8 报 4 confirmed [0H/0M/4L]**（§6.2 `CString.as_cstr` 内联 fn 缺 block 违 §27 line 1486 / §13 §7.2 组合合法性表计数「8 行=5+2+1」未随 pass-7 新增 transparent+align(N) 行同步为「9 行=5+3+1」——selfconsistency+frozen-boundary+glossary 三维度同根命中）已全部修正、待 pass-9 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1 / 0008 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结语义决断**：§1–§94 语义、56 关键字、110 决议均不变。**两处显式扩展**：① §27 `layout` 产生式体扩展（`layout(C)` → 可组合 `layout(C + packed + align(N))`，类比 RFC 0006 对 `stmt`/`call` 的产生式体扩展、属 Authorized RFC 演进通道 RFC 0005 §9）；② `extern` 的 `ident` 收紧为封闭 ABI 集合（名字解析校验、文法不变）。`CStr`/`CString` 为 std.core 类型（落 §34，与 `panic`/`assert` 同模块、默认加载免 import）、`size_of`/`align_of`/`offset_of` 为编译期内征（同 `panic`/`assert` 先例）、`ail.lock` 为工具链文件——均非关键字、零新关键字）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-4**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第五/末优先级；§4 交叉印证 #6「FFI 封送/ABI 未规范，printf 示例自触 UB」+ #11「供应链 lockfile/签名/可复现构建缺失」；[`deep-review-2026-07.md`](../research/deep-review-2026-07.md) §6.1 包供应链 1.5 全规范最薄弱环 + §5.4 可观测维度 FFI UB 风险；[`spec-maturity-2026-07.md`](../research/spec-maturity-2026-07.md) §4.4 ABI/FFI 2.0 全规范最薄弱层 + §4.6 工具链 2.5）|
@@ -140,11 +140,13 @@ layout(transparent) struct CStr {
 //   NUL 处理语义），不规范其定义文法；落地前须先指定内建类型方法附加的文法通道（§83 #2 owner RFC）。
 //   故本 RFC 不出现字面 `impl string { ... }` 块（避免预设未规范的文法）——`string.to_cstr` 以签名声明呈现。
 
-// CString 为 struct——as_cstr 用冻结合规的内联方法（§27 struct 内联 fn、§27 line 1486、无需独立 impl 块）：
+// CString 为 struct——as_cstr 用冻结合规的内联方法（§27 struct 内联 fn 须带 block / §27 line 1486、无需独立 impl 块）：
 struct CString {
     buf: raw_pointer<byte>,         // 拥有版（drop 释放分配）；非 FFI-safe（内部表示，不经 extern）
     len: uint64,
-    fn as_cstr(borrow self) -> CStr // 借用：返回 CStr（Copy，按值；指向 CString 的 NUL 终结缓冲）——内联方法、冻结合规（§27 line 1486）
+    fn as_cstr(borrow self) -> CStr {   // 借用：返回 CStr（Copy，按值；指向 CString 的 NUL 终结缓冲）——§27 内联 fn 带 block、冻结合规
+        CStr { ptr: self.buf }          // layout(transparent) 单字段构造（§27 field-init 字面量语法）——借用 self.buf、返回指向 NUL 终结缓冲的 CStr
+    }
 }
 ```
 
@@ -373,7 +375,7 @@ integrity = "sha256-..."
 | §4 `CString` 非 FFI-safe（白名单仅 `CStr`） | §6.2 `CString { buf, len }` 2-field owning（非 transparent 单字段） | ✅ 白名单 C 串行仅列 `CStr`；`CString` 入非 FFI-safe 拒绝集（消解「CStr/CString 同为 transparent FFI-safe」三方矛盾：§4 白名单 vs §6.2 2-field vs §7.2 单字段规则） |
 | §6.2 封送方法（`string.to_cstr` / `CString.as_cstr`）文法合规 | §27 struct 内联 fn（`as_cstr`、§27 line 1486）+ §83 #2 v0.3 内建类型方法附加（`string.to_cstr`、unowned） | ✅ 本 RFC 仅规范方法【签名+语义】、**不出现字面 `impl` 块**——零新产生式成立（§27 无 impl 产生式）；`CString.as_cstr` 冻结合规内联（CString 为 struct）、`string.to_cstr`（string 为 #[lang] 内建非 struct、无法内联）签名层声明、定义文法依赖 §83 #2 v0.3 独立 impl 块特性（unowned、落地前须先指定 owner RFC） |
 | §6.1 string ABI `{i64 len, i8* ptr}` | §77 line 3093 | ✅ 明确化（修正旧 Draft 误用 `uintptr`——非规范类型） |
-| §7.2 layout 产生式体扩展 + 组合合法性 | §27 `layout "(" ident ")"`（显式演进） | ⚠️ 文法体扩展（标注）+ §7.2 组合合法性表 8 行：**5 条触发 AIL8003**（transparent 单字段 / align(N) 2 的幂+下界 / packed+align(N) 互斥 / packed+transparent 互斥 / 重复标识）+ **2 条合法**（C+packed / C+transparent 冗余告警）+ **1 条 AIL1xxx 语法**（layout 仅 struct、§27 文法强制、pass-4 F8 改归 AIL1xxx 非 AIL8003） |
+| §7.2 layout 产生式体扩展 + 组合合法性 | §27 `layout "(" ident ")"`（显式演进） | ⚠️ 文法体扩展（标注）+ §7.2 组合合法性表 9 行：**5 条触发 AIL8003**（transparent 单字段 / align(N) 2 的幂+下界 / packed+align(N) 互斥 / packed+transparent 互斥 / 重复标识）+ **3 条合法**（C+packed / C+transparent 冗余告警 / **transparent+align(N)**——合法但 align(N) 修正 transparent 的 ABI 继承语义、ABI 注意见 §4 透明包装行、pass-7 新增）+ **1 条 AIL1xxx 语法**（layout 仅 struct、§27 文法强制、pass-4 F8 改归 AIL1xxx 非 AIL8003） |
 | §7.3 size_of/align_of/offset_of 返 `uint64` | 经类型实参调用（**调用式 contingent on RFC 0006 §7 A/B 终审**：方案 B = `size_of::<T>()`、方案 A = `size_of<T>()`）/ 同 panic 内征先例 | ✅ 零新关键字（修正旧 `uintptr`→`uint64`） |
 | §8 panic 跨 FFI→abort | §17 / §89 #3 / §90 #4 | ✅ 重申不变 |
 | §9.1 ail.lock `integrity` 哈希对象 = 源码归档字节 | §10 registry 从源码重建 / §31 强制随包源码 | ✅ 显式定义（消除「哈希什么」歧义） |
@@ -473,6 +475,11 @@ integrity = "sha256-..."
 - **F7（L，transparent-align-n-abi）**：§4 透明包装行断言「任何含 `transparent` spec 的合法 layout 且单字段 FFI-safe 者，均归此类、按值跨界继承字段 ABI」——该「按值继承字段 ABI」对**全部** transparent 组合成立过强：`transparent + align(N)`（N > 字段自然对齐）把 struct 对齐提升为 N、size = round_up(field_size, N)，按值 ABI **非** bare 字段 ABI（与「继承字段 ABI」自相矛盾）。修正：§4 透明包装行按值 ABI 分两情形——bare `transparent` / `C + transparent` 按值继承字段 ABI（struct 与单字段布局同一）；`transparent + align(N)` / `C + transparent + align(N)`（N > 字段自然对齐为唯一非冗余情形）FFI-safe 但按值 ABI 非 bare 字段 ABI（struct 对齐=N、size=round_up(field_size,N)、C 侧须 `struct { alignas(N) T x; }` 匹配）；§7.2 组合合法性表新增 `transparent + align(N)` 行明示该 ABI 修正（合法、FFI-safe、仅 ABI 继承语义被 align 修正）。
 - **F9（L，provenance-submission-list）**：§11 #2「作者侧 `ail publish` 不生成 provenance（无构建环境可测），仅提交源码 + `ail.lock`」与冻结 §31 不符——§31 强制随包源码包 = `src/` + `ail.toml` + `xxx.ailmeta` + `docs/`，「仅源码 + ail.lock」遗漏 `ail.toml` / `xxx.ailmeta` / `docs/`，描述与 §31 源码分发义务不一致。修正：§11 #2 改「按 §31 提交完整源码包（`src/` + `ail.toml` + `xxx.ailmeta` + `docs/`）+ `ail.lock`」，与 §31 源码包清单精确对齐。
 - **F8 + F10（L，stale-cross-ref-sync，同根）**：§12「RFC 0007 §6」交叉更新行的「⚠️ 回引同步」注称 RFC 0007 §6.1 + §13 OQ#6 两处回引「待其下一轮验证（pass-20）同步收紧（本 RFC 不越界改 RFC 0007 正文、pass-19 验证进行中）」——但该同步**已在 pass-19 / `9b315e2` 落地**（RFC 0007 §6.1 line 123 + §13 OQ#6 line 307 两处回引已由笼统「`.ailmeta` 数组字段必须预先规范化排序」收紧为「set/Map 派生预排序 + 声明序保留」收窄规则），故该注 stale。修正：§12 改「⚠️ 回引已同步（pass-19 / `9b315e2`）」——明示两处回引已同步收紧、本 RFC §9.2 与 RFC 0007 两处回引现三方定性一致、措辞同步。
+
+**pass-8 报 0H / 0M / 4L = 4 条 confirmed**（default-refute workflow，refuted 2、共 raw 6），已逐条修正、待 pass-9 复验：
+
+- **F2（L，struct-inline-fn-body）**：§6.2 `struct CString` 的内联 `fn as_cstr(borrow self) -> CStr` 仅有签名无 body——冻结 §27 line 1486 `struct := layout? "struct" ... "{" (field | fn)* "}"` 中 `fn` **须带 block**（函数体）、`fn_sig`（无 body）仅 interface/trait 用、struct 不接 `fn_sig`。pass-5 把 `as_cstr` 移入 struct CString 作为内联 fn 以合规 §27、但漏写 block、实仍违 §27。修正（option ①）：`as_cstr` 补 block——`fn as_cstr(borrow self) -> CStr { CStr { ptr: self.buf } }`（§27 field-init 字面量构造 `layout(transparent)` 单字段 `CStr`、借用 `self.buf`、返回指向 NUL 终结缓冲的 CStr）；`CString` 为真实 user struct（非 `#[lang] string` 的内建非 struct）、§27 内联 fn 通道合法、无需 §83 #2 impl 块依赖。
+- **F1 + F3 + F4（L×3，selfconsistency / frozen-boundary / glossary 三维度同根——§13 §7.2 组合合法性表计数 stale）**：pass-7 给 §7.2 表新增 `transparent + align(N)` 组合行（表遂为 9 行）、但 §13 自洽核查表 line 376 仍记「组合合法性表 8 行 = 5 AIL8003 + 2 合法 + 1 AIL1xxx」（未计入新增行、亦未把 transparent+align(N) 列入合法清单）。三维度从同一 stale 计数各自命中。修正：§13 line 376 改「9 行 = 5 AIL8003（transparent 单字段 / align(N) 2 的幂+下界 / packed+align(N) 互斥 / packed+transparent 互斥 / 重复标识）+ **3 合法**（C+packed / C+transparent 冗余告警 / **transparent+align(N)**——pass-7 新增、合法但 ABI 继承语义被 align 修正）+ 1 AIL1xxx（layout 仅 struct）」——计数与 §7.2 实际行数同步、合法清单枚举 transparent+align(N)。
 
 > 本批是「与外部世界交互的信任与确定性」主题，验证重心在**FFI 安全性（白名单是否真闭合、printf UB 是否真消除）与供应链 soundness（lockfile 是否真复现、信任链是否真闭合）**，比 0006 形式化、0007 确定性、0008 可观测更偏「跨边界正确性 + 攻击面闭合」。
 
