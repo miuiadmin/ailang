@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑多轮对抗式 workflow pass-2–pass-14，post-pass-14 全部 findings 已修正、待 pass-15 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑多轮对抗式 workflow pass-2–pass-17，post-pass-14 全部 findings 已修正；pass-15 / pass-16 报 0 confirmed；pass-17 报 2 confirmed [1M/1L] 并已全部修正、待 pass-18 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结规范**：§1–§94、56 关键字、110 决议均不变；P0-0 为规范工程治理层，优先级最高，可先于特性 RFC 合并）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-0**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 排定的第一优先级；其余一切补齐的元前提）|
@@ -51,7 +51,7 @@
 3. **生成符合 §24 schema 的 `.ailmeta`**（随包强制产物，§32）——其字段集合遵循 §24（`.ailmeta` schema 的规范性来源），且输出**确定性**（固定字段排序）；该确定性要求由本条**确立为规范性义务**。（§78 仅为 Part IV 资料性的实现层排序描述，不构成本条义务的权威来源——见 §5。）
 4. **诊断**违反规范性条款的程序（类型错误、所有权违规、可见性违规等），诊断信息**必须**结构化（**诊断发射协议**见 [RFC 0008](./0008-diagnostics-taskhandle.md) §4 的 JSON Lines 契约；§69.3 的内部 `Diagnostic` 结构为 Part IV 资料性参考，不构成本条义务的权威来源）。
 
-> **引用纪律**：§3 的 MUST / SHOULD 条款以规范性来源（Part I 含 §27 / §15 / §18 / §19 / §20 / §22、§24、§32，及 §1.5 本节、RFC 0008 §4 协议等——非穷举）为权威；Part IV 的 §69.3 / §78 仅作资料性参考被提及，不因被本节引用而升格为合规要求（与 §5 的 normative / informative 分区一致）。
+> **引用纪律**：§3 的 MUST / SHOULD 条款以规范性来源（Part I（§27 / §15 / §18 / §19 / §20 / §22 / §24）、Part II §32，及 §1.5 本节、RFC 0008 §4 协议等——非穷举）为权威；Part IV 的 §69.3 / §78 仅作资料性参考被提及，不因被本节引用而升格为合规要求（与 §5 的 normative / informative 分区一致）。
 
 实现**可以**提供超出本规范的能力（扩展），但**不得**改变安全代码的规范性语义。`unsafe` 块（§25）与 FFI（`extern`，§25.3）是合规实现**唯一允许**偏离安全语义的逃生舱，其边界由 §90 #4 精确清单锁定。
 
@@ -68,7 +68,7 @@
 | 中文 | RFC 2119 | 约束力 |
 |---|---|---|
 | **必须** | MUST / SHALL / REQUIRED | 满足方为合规；违反即不合规 |
-| **不得** | SHALL NOT / MUST NOT | 禁止该行为；违反即不合规 |
+| **不得** / 禁 / 禁止 / 不可 | SHALL NOT / MUST NOT | 禁止该行为；违反即不合规（「禁 / 禁止 / 不可」为正文主导禁止词形、与「不得」同义，见下注） |
 | **应** | SHOULD / RECOMMENDED | 强烈建议；偏离须有正当理由（对齐 RFC 2119 / 8174 SHOULD 语义） |
 | **不应** | SHOULD NOT / NOT RECOMMENDED | 强烈不建议；偏离可有正当理由、不必定不合规——约束力**弱于**「不得」（绝对禁止），二者不可互替 |
 | **可以** | MAY / OPTIONAL | 实现自由度；是否实现均合规 |
@@ -76,6 +76,8 @@
 正文以中文词汇为准，附录 D（§8）给出完整术语映射。**仅当**上述词汇以**粗体**形式出现时，才具 RFC 2119 约束力（严格对齐 RFC 8174 的单一形式标记原则——ALL CAPS 在中文场景映射为**粗体**，以消除自然语言上下文判定的模糊；义务等级 MUST / SHOULD / MAY 由粗体关键词决定）；普通行文中的「必须」「可以」不自动升级为规范性语义。
 
 > 设计选择（中文为主 + glossary 映射）：AILang 规范正文为中文，故正文用中文规范性词汇（必须 / 不得 / 应 / 可以），避免中英混杂；同时附录 D 给出 RFC 2119 英文映射，确保与 IETF / 编译器实现者社区的对齐无歧义。
+
+> **正文既有禁止词形的约束力保留**（消除 D.1「完整术语映射」遗漏正文主导词形的等级歧义）：冻结规范正文（§1–§94）实际表达禁止所用的主导词形为「禁 / 禁止 / 不可」（如 §12.2 禁 `import *`、§15.4 禁 `old()`、§15.7 禁止 null、§17/§21 task/actor on/server handler 禁 throw、§18.4 Move-only 不可 `copy`、§11 `&&`/`||`/`!` 不可重载等——均 Part I 规范性强制条款），与上表「不得」同义、按 MUST NOT 等级处理。上节「仅粗体方生效」规则的适用对象为**本 §4 表内规范关键词的新引入用法**；冻结正文既有的「禁 / 禁止 / 不可」**不因未加粗而丧失约束力**（其规范地位由 §5 Part I normative 分区承载、非由粗体标记决定）——此切割使既有强制条款的约束力不被新框架无意抹除，让 D.1 的「完整术语映射」名副其实。
 
 ---
 
@@ -145,7 +147,7 @@
 
 > 资料性术语索引，给出关键术语的精确定义与 RFC 2119 映射。术语定义与正文冲突时，以正文（尤其 §1.5）为准。
 
-**D.1 规范性词汇（RFC 2119 完整映射，见 §1.5.1 / §4）**：必须(MUST / SHALL / REQUIRED) / 不得(SHALL NOT / MUST NOT) / 应(SHOULD / RECOMMENDED) / 不应(SHOULD NOT / NOT RECOMMENDED) / 可以(MAY / OPTIONAL)，含义务定义——此为 §4（§1.5.1）5 行义务等级表的**完整术语映射**，满足 §4 正文「附录 D 给出完整术语映射」的要求。
+**D.1 规范性词汇（RFC 2119 完整映射，见 §1.5.1 / §4）**：必须(MUST / SHALL / REQUIRED) / 不得(SHALL NOT / MUST NOT；正文主导禁止词形「禁 / 禁止 / 不可」为同义、按 MUST NOT 处理，见 §4 正文既有禁止词形约束力保留注) / 应(SHOULD / RECOMMENDED) / 不应(SHOULD NOT / NOT RECOMMENDED) / 可以(MAY / OPTIONAL)，含义务定义——此为 §4（§1.5.1）5 行义务等级表的**完整术语映射**（禁止类已覆盖正文实际使用的「不得 / 禁 / 禁止 / 不可」全部词形），满足 §4 正文「附录 D 给出完整术语映射」的要求。
 
 **D.2 语言与类型术语**：语义类型（semantic type，§15.3）、约束（constraint，§15.4 / §92 #2 / §92 #6）、`meaning`（§15.3 / §8.5 / §92 #8）、`effect` / 效果系统（§19）、trait（§15.11 / §86 #10，泛型 bound→编译期单态化、可带默认实现）、interface（§15.11 / §86 #10，dyn 派发→方法禁泛型、值为 Move 句柄——trait vs interface 类型层二分）、`unsafe` 块（§25.1 精确清单，安全代码的对立面）、`extern` / FFI（§25.3，调用须置于 `unsafe` 块 §25.1 ②）、契约 contract（§20 前置 `requires` / 后置 `ensures`，与 §15.4 约束类型 constraint 显式区分）、所有权 ownership（§18）、move（§18.3）、borrow / borrow_mut（§18.5 / §74.2）、copy（§18.3 / §18.4，Copy 与 COW 类型的显式克隆；Move-only 资源类型不可 `copy`）、Drop / Resource.release（§18.7，确定性析构，与 §6「析构顺序」定义行为范例对齐）、Send / Sync（§18.6 / §87 #6，编译器自动派生的 marker trait、跨线程安全边界，「安全代码无数据竞争」的静态执行机制）、Task（§21 / §87）、Actor（§21 / §87 #5）、`.ailmeta`（§24 / §32）、`schema_version`（当前 `0.2.0`，RFC 0001–0004 预留 `0.3.0`，§88 #2）。
 
@@ -184,7 +186,7 @@
 | §7 安全代码不产生 UB | §90 立场「永不 UB」 | ✅ 形式化既有立场 |
 | §6 Drop 声明序属定义行为 | §18.7 / §90 #5 | ✅ 一致 |
 | §5 标签全集归类（9 类内容标签 + `[矛盾]`/`[决断]` 修饰类不参与判定 + 复合采 `[A/B]` 斜杠形 + 规范性闭集声明） | §83–§94 既有标签（grep 复核：22 种相异**决议标注**全归类；`#[lang]` 为编译器属性、不计入） | ✅ 全集已穷举（含 `[矛盾]`/`[决断]`，复合示例改斜杠形） |
-| **§3 MUST/SHOULD 来源的 normative 一致性** | §3 引 Part I（§27/§15/§18/§19/§20/§22）/ §24 / §32 / RFC 0008 §4 等（非穷举）；§69.3/§78 仅资料性参考 | ✅ 已核查：§3 无 MUST/SHOULD 以 Part IV informative 为权威（与 §5 分区一致） |
+| **§3 MUST/SHOULD 来源的 normative 一致性** | §3 引 Part I（§27/§15/§18/§19/§20/§22/§24）/ Part II §32 / RFC 0008 §4 等（非穷举）；§69.3/§78 仅资料性参考 | ✅ 已核查：§3 无 MUST/SHOULD 以 Part IV informative 为权威（与 §5 分区一致；§32 归 Part II §28–§42 规范性核心、§24 归 Part I——Part 标签已显式分列） |
 | 全部交叉引用章节号 | §15.1/§15.4/§17/§18.7/§20/§24/§25.1/§25.3/§90（normative）；§69.3/§74/§74.2/§78（informative 参考） | ✅ grep 核查零悬空 + 已区分 normative/informative |
 
 **零新关键字核查**：`must`/`shall`/`should`/`may`/`conformance`/`normative`/`informative`/`profile`/`defined`/`undefined` 在 §9（56 关键字表）中均不出现——本 RFC 不引入任何关键字。**零产生式核查**：不触动 §27 任一产生式。
@@ -226,7 +228,7 @@
 
 ## 14. 收敛轨迹
 
-**收敛轨迹**：已跑多轮对抗式 workflow（pass-2 → pass-14，与 RFC 0006/0007 同批 pipeline，每轮修正后 FRESH 重跑、无 `resumeFromRunId`）。历轮累计修正：pass-3 H1 §3 Conformance 引用重定向到 normative 来源（MUST/SHOULD 仅引 normative）；pass-13 §5 增「无标签条目兜底」条款（§83 决议记录 I 10 项无标签条目视作资料性索引、规范性权威由指针承载，闭合标签分类盲区）；其余多轮 M/L（行为四分法 / build profile / RFC 2119 映射 / glossary / normative-informative 分区）。**pass-14 报 0 条 confirmed**（RFC 0005 本 pass clean，自 pass-3 修正后持续收敛、无回归）。post-pass-14 全部历轮 findings 已修正、待 pass-15 复验收敛。审查维度：自洽性 / 冻结边界 / 交叉引用悬空 / 与 §90 §17 §25 对齐 / RFC 2119 映射准确性 / glossary 完备性 / normative-informative 划分正确性 / 行为四分法 soundness。
+**收敛轨迹**：已跑多轮对抗式 workflow（pass-2 → pass-14，与 RFC 0006/0007 同批 pipeline，每轮修正后 FRESH 重跑、无 `resumeFromRunId`）。历轮累计修正：pass-3 H1 §3 Conformance 引用重定向到 normative 来源（MUST/SHOULD 仅引 normative）；pass-13 §5 增「无标签条目兜底」条款（§83 决议记录 I 10 项无标签条目视作资料性索引、规范性权威由指针承载，闭合标签分类盲区）；其余多轮 M/L（行为四分法 / build profile / RFC 2119 映射 / glossary / normative-informative 分区）。**pass-14 报 0 条 confirmed**（RFC 0005 本 pass clean，自 pass-3 修正后持续收敛、无回归）。post-pass-14 全部历轮 findings 已修正。**pass-15 / pass-16 报 0 confirmed**（持续 clean、无回归）。**pass-17 报 2 confirmed [1M/1L] 并已全部修正**：① [L] §3 引用纪律注把 §32（实属 Part II、§28–§42 规范性核心）误归「Part I 含」、与 §10/§5 Part 归类不一致 → 改 §3 分列形式「Part I（…§24）、Part II §32」+ §10 自洽行同步分列（§24 归 Part I、§32 归 Part II）；② [M] D.1「完整术语映射」遗漏正文实际主导的禁止词形「禁/禁止/不可」（冻结正文禁/禁止 60 处、不可 34 处、不得仅 1 处 §15.11）→ §4 表「不得」行扩为「不得/禁/禁止/不可」+ §4 加「正文既有禁止词形约束力保留」注（粗体规则适用对象切割为 §4 表内新关键词、冻结正文禁/禁止/不可不因未加粗丧失约束力、规范地位由 §5 Part I normative 分区承载）+ D.1 同步标注。post-pass-17 待 pass-18 复验收敛。审查维度：自洽性 / 冻结边界 / 交叉引用悬空 / 与 §90 §17 §25 对齐 / RFC 2119 映射准确性 / glossary 完备性 / normative-informative 划分正确性 / 行为四分法 soundness。
 
 > 由于本 RFC 是元规则层（无代码、无文法、无算法），验证重心在**规范文本自洽与交叉引用完整性**，而非 0001–0004 的实现可行性——这降低了验证复杂度，预期收敛轮次少于特性 RFC。
 

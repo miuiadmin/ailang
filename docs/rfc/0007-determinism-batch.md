@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑多轮对抗式 workflow pass-2–pass-14，post-pass-14 全部 findings 已修正、待 pass-15 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑多轮对抗式 workflow pass-2–pass-17，post-pass-14 全部 findings 已修正；pass-15 报 0 confirmed；pass-16 报 1M（§13 OQ#6 seed 谬误）已修正；pass-17 报 2 confirmed [2M] 并已全部修正、待 pass-18 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结规范**：§1–§94 语义决断、56 关键字、110 决议均不变；`as` 转换算子复用既有 56 关键字之一——`as` 已在 §9 模块类别，零新关键字）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-2**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第三优先级；synthesis §4 交叉印证 #1–#5 + #12，全部 high 严重度，两轮独立双盲命中）|
@@ -91,7 +91,7 @@ synthesis §4 的**交叉印证矩阵**是全场可信度最高的必修项—�
 
 1. **局部变量（locals）**：作用域内的局部变量按**逆声明序** drop（后声明的先释放——栈序，LIFO）。
 2. **临时值**：表达式求值产生的临时值（如 `f(g(), h())` 的中间结果）按**构造逆序** drop。
-3. **调用实参临时值**：实参按左到右求值（§4）后，**未被 move 的**实参临时值彼此按求值逆序 drop（即 `h()` 先于 `g()` drop——此例以非 move 实参为示）；drop **时点**由 #6 的完整表达式（full expression）作用域统一裁定。**例外（与 #6 move 进 local 对称）**：若实参被 **move 进被调函数**（move 传递模式，含默认 move §18.3；§27 文法 `mode` 省略即 move、`borrow T` 形参方自动借用），则该实参**不构成调用者临时值**——所有权在调用时即转移给被调形参（形参即被调函数的参数 local，§88 #3），作为其参数 locals 按**逆声明序 #1** 在**被调函数作用域末**（≈返回时）drop，调用者侧无 drop 义务（强行 drop 即 use-after-move / double-drop，违 §18.3）。故本条逆序 drop 仅适用于**未被 move** 的实参临时值（copy 传递模式的副本、`borrow` / `borrow_mut` 传递的借用临时值），其 drop 时点为完整表达式末（#6）。（Rust Reference 的 full-expression temporary lifetime 同样不覆盖被 move 走的实参——moved-out slot 无 drop glue、由被调函数 drop；本条对齐之。）
+3. **调用实参临时值**：实参按左到右求值（§4）后，**未被 move 的**实参临时值彼此按求值逆序 drop（即 `h()` 先于 `g()` drop——此例以非 move 实参为示）；drop **时点**由 #6 的完整表达式（full expression）作用域统一裁定。**例外（与 #6 move 进 local 对称）**：若实参被 **move 进被调函数**（move 传递模式，含默认 move §18.3；§27 文法 `mode` 省略即 move、`borrow T` 形参方自动借用），则该实参**不构成调用者临时值**——所有权在调用时即转移给被调形参（形参即被调函数作用域内的 local——由 §18.7「所有者离开作用域即 release」+ §18.2 单一 Owner 模型隐含导出；本 RFC §5 将该隐含语义显式锁定为 Drop 扩展条款：move 进形参的值按逆声明序 #1 在被调函数作用域末 drop），作为其参数 locals 按**逆声明序 #1** 在**被调函数作用域末**（≈返回时）drop，调用者侧无 drop 义务（强行 drop 即 use-after-move / double-drop，违 §18.3）。故本条逆序 drop 仅适用于**未被 move** 的实参临时值（copy 传递模式的副本、`borrow` / `borrow_mut` 传递的借用临时值），其 drop 时点为完整表达式末（#6）。（Rust Reference 的 full-expression temporary lifetime 同样不覆盖被 move 走的实参——moved-out slot 无 drop glue、由被调函数 drop；本条对齐之。）
 4. **混合序**：同一作用域内，locals 与临时值统一按**析构时点逆序** drop（后构造 / 后声明的先释放）；临时值的「析构时点 / 作用域」由 #6 的 lifetime 规则确定（语句级 vs 块级）。
 5. **panic 展开**：同序 drop（§89 #3 已有，保持）。
 6. **临时值作用域（lifetime）**：临时值在包围它的**完整表达式**（full expression——语句末 `;` 或最外层表达式边界）结束时 drop（对齐 Rust Reference / C++ temporary lifetime）。**例外**：若临时值被 `let` 初始化器 **move 进** local（直接成为该 local 的值），则**不构成临时值**（归入该 local 的逆声明序 #1）。**裸表达式语句**（§27 `stmt := … | expr`，如 `foo();` 丢弃返回值、`a + b;`）产生的非实参临时值，在**该语句末** drop（语句级作用域，不进入块级 locals 的混合序）。此规则给 #2 / #4 的「析构时点」提供确定作用域，使混合序可一致应用。
@@ -130,7 +130,7 @@ trait Hash {
 | `Map<K, V>` | `iter()` / `for (k, v) in map` | `(K, V)` 元组 |
 | `Set<T>` | `iter()` / `for x in set` | `T` |
 
-- for-in 经**语言层迭代**（§18.8 for-loop 编译期零成本展开为指针循环、无迭代器对象开销）；`Iterator` trait 的正式声明（若引入）随 `std.collections` 落地，**非** v0.3 std.core lang item（冻结规范 `Iterator` 零声明——§86 #5 lang item 列表 / §73 TypeDb `Builtin` / §18.8 均无之）。
+- for-in 经**语言层迭代**（§18.8 for-loop 编译期零成本展开为指针循环、无迭代器对象开销）；`Iterator` trait 的正式声明（若引入）随 `std.collections` 落地，**非** v0.3 std.core lang item（冻结规范 `Iterator` 零声明——§86 #5 lang item 列表 / §73 TypeDb `Builtin` / §18.8 均无之）。**同 string（§8 #3）**，显式 `.iter()` 方法（上表所列概念迭代方法）随 `Iterator` trait 一并推迟至 `std.collections` 落地、**非** v0.3 std.core 已声明方法；v0.3 List/Map/Set 迭代**经 `for-in` 语言层**（§18.8 编译期内建），不依赖零声明的 `Iterator` trait——上表 `iter()` 为概念迭代方法（与 string §8 #3 对称），非 v0.3 std.core 方法。
 - Map 迭代产出 `(K, V)` 元组；解构 `for (k, v) in map`。
 
 ### 6.3 迭代序决断（核心）
@@ -146,7 +146,7 @@ let pairs = map.iter().collect()         // List<(K, V)>，序未指定（collec
 let sorted = sort(pairs)                 // 排序 API 随 std.collections（冻结规范中 fn sort<T> 仅作 §15.10 泛型语法示例，非已声明 std 函数）
 ```
 
-**trade-off**：强制 Map 有序（如改 LinkedHashMap / BTreeMap 底层）牺牲性能（违背「极致性能」目标）；默认未指定 + 显式排序逃生通道（物化 `iter()` 为 `List` 后排序；排序 API、元组 `Ord` 派生、按-key 排序便利方法、`collect` / `to_list` 物化方法均留 `std.collections`），兼顾性能与可控性。**有序变体**（`SortedMap<K,V>`，BTree 底层，迭代=K 升序）作为可选标准库类型，留开放问题 #3（是否引入）。
+**trade-off**：强制 Map 有序（如改 LinkedHashMap / BTreeMap 底层）牺牲性能（违背「极致性能」目标）；默认未指定 + 显式排序逃生通道（物化 `iter()` 为 `List` 后排序——`iter()` / 排序 API / 元组 `Ord` 派生 / 按-key 排序便利方法 / `collect` / `to_list` 物化方法**均留 `std.collections`**、同 string §8 #3 对称推迟），兼顾性能与可控性。**有序变体**（`SortedMap<K,V>`，BTree 底层，迭代=K 升序）作为可选标准库类型，留开放问题 #3（是否引入）。
 
 > 此决断为 RFC 0005 §6 **未提及**的 Map/Set 迭代序**新增一条未指定行为登记**（诚实登记，非假装有序），与本 RFC §10 表一致；求值序的既有未指定登记（RFC 0005 §1.5.4 就地登记）则由 §4 收紧关闭。
 
@@ -311,7 +311,7 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 
 ## 14. 收敛轨迹
 
-**收敛轨迹**：已跑多轮对抗式 workflow（pass-2 → pass-14，与 RFC 0005/0006 同批 pipeline，每轮修正后 FRESH 重跑、无 `resumeFromRunId`）。历轮累计修正：pass-2 报 1H/1M/4L（6 条，含求值序逐产生式补全、Drop 序与 §90 #5 对齐、`as` saturating 语义）；pass-6/13 多轮（§8 `Iterator<char>` 改述推迟 std.collections 并移除 iter 行、§5 #3 move-into-callee Drop 例外、§6.1 Hash seed 归因修正、§8 byte→string）；**pass-14 报 1M/2L 并已全部修正**：① §9 opt-level 锁定权威分承——`overflow-checks` 源自 §90 #1、`opt-level`（冻结规范不存在）为 RFC 0007 工具链决断（M）；② §6.1 `Display` 分类「运算类唯一例外」修正「非运算 trait」误标（与 §15.3 line 529/2974 + RFC 自身「带方法 = 运算」判据双重自洽）；③ §13 OQ #6 Hash seed「与构建可复现性无冲突」谬误残留 → 归因 RFC 0009 §9.2 预排序规则闭合（与 §6.1 / RFC 0009 §9.2/§12 三方定性统一）。post-pass-14 待 pass-15 复验收敛。pass-15 报 0 confirmed（本 RFC clean）。**pass-16 报 1M 并已修正**：§13 OQ#6 仍残留 pass-14 未竟的「seed 不烘焙入编译产物故二进制可复现」因果谬误（pass-14 修正只落到 §6.1 line 123「正交」框架、未同步到 §13 OQ#6 括号注）——与 §6.1「张力非由 seed 不烘焙闭合」+ RFC 0009 §15 #6「原生二进制复现依赖 codegen lowering 未闭合」三方冲突；修正=§13 OQ#6 删除「故二进制可复现」因果断言、改述为「seed 为运行期每进程值、与编译产物正交、不蕴含二进制可复现」、张力归 RFC 0009 §9.2 预排序规则闭合、二进制侧显式标未闭合（RFC 0009 §15 #6）。post-pass-16 待 pass-17 复验收敛。审查维度：求值序逐产生式完备性 / Drop 序与 §90 #5 一致性 / Hash trait 与 Eq 协调 / `as` 语义安全无 UB / 字符串 length·char·Eq 自洽 / build profile 与 §90 对齐 / 与 RFC 0005 交叉更新正确性 / 性能 trade-off 论证。
+**收敛轨迹**：已跑多轮对抗式 workflow（pass-2 → pass-14，与 RFC 0005/0006 同批 pipeline，每轮修正后 FRESH 重跑、无 `resumeFromRunId`）。历轮累计修正：pass-2 报 1H/1M/4L（6 条，含求值序逐产生式补全、Drop 序与 §90 #5 对齐、`as` saturating 语义）；pass-6/13 多轮（§8 `Iterator<char>` 改述推迟 std.collections 并移除 iter 行、§5 #3 move-into-callee Drop 例外、§6.1 Hash seed 归因修正、§8 byte→string）；**pass-14 报 1M/2L 并已全部修正**：① §9 opt-level 锁定权威分承——`overflow-checks` 源自 §90 #1、`opt-level`（冻结规范不存在）为 RFC 0007 工具链决断（M）；② §6.1 `Display` 分类「运算类唯一例外」修正「非运算 trait」误标（与 §15.3 line 529/2974 + RFC 自身「带方法 = 运算」判据双重自洽）；③ §13 OQ #6 Hash seed「与构建可复现性无冲突」谬误残留 → 归因 RFC 0009 §9.2 预排序规则闭合（与 §6.1 / RFC 0009 §9.2/§12 三方定性统一）。post-pass-14 待 pass-15 复验收敛。pass-15 报 0 confirmed（本 RFC clean）。**pass-16 报 1M 并已修正**：§13 OQ#6 仍残留 pass-14 未竟的「seed 不烘焙入编译产物故二进制可复现」因果谬误（pass-14 修正只落到 §6.1 line 123「正交」框架、未同步到 §13 OQ#6 括号注）——与 §6.1「张力非由 seed 不烘焙闭合」+ RFC 0009 §15 #6「原生二进制复现依赖 codegen lowering 未闭合」三方冲突；修正=§13 OQ#6 删除「故二进制可复现」因果断言、改述为「seed 为运行期每进程值、与编译产物正交、不蕴含二进制可复现」、张力归 RFC 0009 §9.2 预排序规则闭合、二进制侧显式标未闭合（RFC 0009 §15 #6）。post-pass-16 待 pass-17 复验收敛。**pass-17 报 2M 并已全部修正**：① §5 #3 move-into-callee 例外引用 §88 #3 作「形参即 local」权威，但 §88 #3 实为 .ailmeta schema 去重决议（`input[].mode` 权威 / `ownership` 删 `inputs[]`、line 3317，不含形参-local 或 Drop 语义）——交叉引用指向错误、论证根基悬空 → 删 §88 #3 引用、改显式声明为 §5 Drop 扩展条款并正确归因（§18.7「所有者离开作用域即 release」+ §18.2 单一 Owner 模型隐含导出、本 RFC §5 显式锁定 move 进形参值按逆声明序在被调作用域末 drop、非既有冻结决断）；② §6.2/§6.3 把 List/Map/Set `.iter()` 隐含为 v0.3 可用、与 §8 #3 显式推迟 string `.iter()` 矛盾 + `.iter()` 返回类型依赖零声明 Iterator trait（pass-14 §8 修正未传播到 §6.2/§6.3）→ §6.2 加「同 string §8 #3、显式 .iter() 随 Iterator trait 推迟 std.collections、非 v0.3 std.core 方法、v0.3 List/Map/Set 经 for-in 语言层」+ §6.3 trade-off 把 .iter() 加入「均留 std.collections」清单（与 collect/to_list/sort 同列、同 string §8 #3 对称）。post-pass-17 待 pass-18 复验收敛。审查维度：求值序逐产生式完备性 / Drop 序与 §90 #5 一致性 / Hash trait 与 Eq 协调 / `as` 语义安全无 UB / 字符串 length·char·Eq 自洽 / build profile 与 §90 对齐 / 与 RFC 0005 交叉更新正确性 / 性能 trade-off 论证。
 
 > 本批是「确定性」主题，验证重心在**语义决断的安全性与完备性**（尤其 float→int 永不 UB、求值序无遗漏 case），比 0006 的形式化更偏语义正确性。
 
