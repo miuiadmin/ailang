@@ -24,7 +24,7 @@ synthesis §4 的**交叉印证矩阵**是全场可信度最高的必修项—�
 
 **为什么是「确定性条款批」**。这些 gap 的共同性质是**让运行结果可预期**——同一程序在不同实现 / 不同运行下产生相同结果。它们多为**纸面决断**（每条一两段），不阻塞编译器地基（P0-1 已解），但直接决定「可预期」维度能否从 6.25 提升。synthesis §3 把它们归为 **A 类未定义地基**（便宜、是编译器前置）。
 
-**与 RFC 0005 的交叉**：**求值序**当前在 RFC 0005 §6 登记为「未指定行为」（附录 B 遗留 #7），**Map/Set 迭代序则未被 RFC 0005 提及**；本 RFC 将前者**收紧为定义行为**（左到右，关闭遗留 #7），并为后者**新增一条显式未指定登记**（诚实登记，不假装有序），二者都更新 RFC 0005 §6 的状态（§10）。
+**与 RFC 0005 的交叉**：**求值序**当前在 RFC 0005 §6 登记为「未指定行为」（RFC 0005 §1.5.4 就地登记），**Map/Set 迭代序则未被 RFC 0005 提及**；本 RFC 将前者**收紧为定义行为**（左到右，登记关闭），并为后者**新增一条显式未指定登记**（诚实登记，不假装有序），二者都更新 RFC 0005 §6 的状态（§10）。
 
 ---
 
@@ -93,6 +93,7 @@ synthesis §4 的**交叉印证矩阵**是全场可信度最高的必修项—�
 4. **混合序**：同一作用域内，locals 与临时值统一按**析构时点逆序** drop（后构造 / 后声明的先释放）；临时值的「析构时点 / 作用域」由 #6 的 lifetime 规则确定（语句级 vs 块级）。
 5. **panic 展开**：同序 drop（§89 #3 已有，保持）。
 6. **临时值作用域（lifetime）**：临时值在包围它的**完整表达式**（full expression——语句末 `;` 或最外层表达式边界）结束时 drop（对齐 Rust Reference / C++ temporary lifetime）。**例外**：若临时值被 `let` 初始化器 **move 进** local（直接成为该 local 的值），则**不构成临时值**（归入该 local 的逆声明序 #1）。**裸表达式语句**（§27 `stmt := … | expr`，如 `foo();` 丢弃返回值、`a + b;`）产生的非实参临时值，在**该语句末** drop（语句级作用域，不进入块级 locals 的混合序）。此规则给 #2 / #4 的「析构时点」提供确定作用域，使混合序可一致应用。
+7. **构造期 panic 的字段 Drop 归类**：struct 字面量 `T { f1: e1, … }` 构造途中某字段初始化器 panic 时，**已求值的字段值**按 §5 #2 **临时值逆构造序** drop（即逆书写求值序——§4 求值序为书写序，故 Drop 序 = 逆书写序）；struct **完整构造后**字段 Drop 序才转用 §90 #5 ① 声明序。「move 进 struct 字段」与「move 进 local」（#6 例外）同理：仅在 struct 完整构造后方成为字段（§90 #5 接管），构造中途的字段值仍按临时值处理。此条款消除「书写序 ≠ 声明序」时两种读法（逆构造序 vs 声明序）产出不同可观测 Drop 序的歧义（对齐 Rust Reference：struct literal 构造期已初始化字段按逆初始化序 drop）。
 
 **设计说明**：
 
@@ -138,14 +139,14 @@ trait Hash {
 - 规范**显式声明**此为未指定（不假装有序），需确定序的场景**必须**显式排序：
 
 ```ail
-// 示意：物化 + 排序 API 随 std.collections 落地；排序本身复用冻结 fn sort（§34）
+// 示意：物化 + 排序 API 随 std.collections 落地
 let pairs = map.iter().collect()         // List<(K, V)>，序未指定（collect 随 std.collections）
-let sorted = sort(pairs)                 // fn sort<T>(List<T>) where { Ord<T> }（§34）；需 Ord<(K,V)>
+let sorted = sort(pairs)                 // 排序 API 随 std.collections（冻结规范中 fn sort<T> 仅作 §15.10 泛型语法示例，非已声明 std 函数）
 ```
 
-**trade-off**：强制 Map 有序（如改 LinkedHashMap / BTreeMap 底层）牺牲性能（违背「极致性能」目标）；默认未指定 + 显式排序逃生通道（物化 `iter()` 为 `List` 后用冻结 `fn sort` §34 排序；元组 `Ord` 派生与按-key 排序便利方法、`collect` / `to_list` 物化方法留 `std.collections`），兼顾性能与可控性。**有序变体**（`SortedMap<K,V>`，BTree 底层，迭代=K 升序）作为可选标准库类型，留开放问题 #3（是否引入）。
+**trade-off**：强制 Map 有序（如改 LinkedHashMap / BTreeMap 底层）牺牲性能（违背「极致性能」目标）；默认未指定 + 显式排序逃生通道（物化 `iter()` 为 `List` 后排序；排序 API、元组 `Ord` 派生、按-key 排序便利方法、`collect` / `to_list` 物化方法均留 `std.collections`），兼顾性能与可控性。**有序变体**（`SortedMap<K,V>`，BTree 底层，迭代=K 升序）作为可选标准库类型，留开放问题 #3（是否引入）。
 
-> 此决断为 RFC 0005 §6 **未提及**的 Map/Set 迭代序**新增一条未指定行为登记**（诚实登记，非假装有序），与本 RFC §10 表一致；求值序的既有未指定登记（RFC 0005 附录 B 遗留 #7）则由 §4 收紧关闭。
+> 此决断为 RFC 0005 §6 **未提及**的 Map/Set 迭代序**新增一条未指定行为登记**（诚实登记，非假装有序），与本 RFC §10 表一致；求值序的既有未指定登记（RFC 0005 §1.5.4 就地登记）则由 §4 收紧关闭。
 
 ---
 
@@ -156,11 +157,11 @@ let sorted = sort(pairs)                 // fn sort<T>(List<T>) where { Ord<T> }
 **决断**：复用既有 56 关键字 `as`（§9 模块类别，原用于 `import x as y`）作**类型转换表达式算子**：
 
 ```
-cast_expr := postfix "as" type          // x as int / x as float32 / x as uint8
+cast_expr := unary ("as" type)*         // x as int / x as float32 as f64（链式）；操作数为 unary（非 postfix），使 as 位于 unary 之上、mul 之下
 ```
 
 - `as` 在**表达式位置**为转换算子，在 **import 语句位置**为别名（parser 按位置消歧，零冲突）。
-- 优先级：**高于乘除算术**（`*` / `/` / `%`）、低于一元前缀（`*` 解引用 / `!` / `try`）——对齐 Rust `as`（`x as f32 * 2.0` 解析为 `(x as f32) * 2.0`），故自然高于加减、比较、逻辑、赋值各级。落地时插入 §11 运算符表相应级。
+- 优先级：**高于乘除算术**（`*` / `/` / `%`）、**低于一元前缀**（`*` 解引用 / `!` / `try`）——产生式 `cast_expr := unary ("as" type)*` 把操作数定为 `unary`（§27 文法链 `mul := unary (...)` / `unary := prefix_op unary | postfix`），故 `as` 嵌于 `unary` 与 `mul` 之间、绑定**松于**一元前缀（一元先作用、cast 后作用）、**紧于**乘除。对齐 Rust `as`（`x as f32 * 2.0` = `(x as f32) * 2.0`、`*p as int` = `(*p) as int`）。落地时在 §27 文法链插入 `mul := cast_expr (...)` / `cast_expr := unary ("as" type)* | unary`。
 
 **转换语义**（安全代码永不 UB，RFC 0005 §6）：
 
@@ -197,7 +198,7 @@ cast_expr := postfix "as" type          // x as int / x as float32 / x as uint8
 1. **`length()` = UTF-8 字节长度**（O(1)，直接取缓冲长度）——对齐 Rust `String::len()` / Go `len(string)`，性能优先。
    - 另提供 `char_count()` = Unicode 码点数（O(n) 遍历解码），供「字符数」语义需求。
 2. **引入 `char` 类型**（标准库类型，非关键字，类 `byte`）：Unicode 标量值（U+0000–U+10FFFF，4 字节 / `uint32` 存储，对齐 Rust `char`）；字面量 `'a'`（RFC 0006 §5 `char_lit` 已定义）。`char` 为**位复制 Copy**（同 `byte` / `int` / `uint` / `float` / `bool`，§18.4 三分类追加——定宽 4 字节、无所有权语义、按值拷贝）。
-3. **迭代**：`for ch in s` 迭代 `char`（UTF-8 解码，逐码点，跳过无效字节序列 → panic `InvalidUtf8` 或替换 U+FFFD，见开放问题 #4）；`string.iter() -> Iterator<char>`。
+3. **迭代**：`for ch in s` / `string.iter() -> Iterator<char>` 按 UTF-8 解码逐码点产出 `char`；因 `string` 维持有效 UTF-8 不变量（构造即校验，见上方引言），正常路径**永不遇无效字节**；一旦该不变量被违约（仅理论上 / 未来 unsafe 字节重解释路径），迭代立即 **panic `InvalidUtf8`**（防御性违约 panic，**不做** U+FFFD 替换、**不跳过**无效字节——与开篇引言、开放问题 #4 收敛态一致）。
 4. **Eq 接地**：`string` 实现 `Eq`（`string == string` 经 `Eq.eq`，§86 #8 运算符解糖）——比较为 **UTF-8 字节序**（等价于码点序，因 UTF-8 编码保序）。
 
 **扩展后的 §36 方法表**（在现表基础上增补）：
@@ -246,11 +247,11 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 
 | 条目 | RFC 0005 现状 | 本 RFC 后 |
 |---|---|---|
-| 表达式求值顺序 | unspecified（附录 B 遗留 #7） | **defined behavior**（左到右，§4）——遗留 #7 关闭 |
+| 表达式求值顺序 | unspecified（RFC 0005 §1.5.4 就地登记） | **defined behavior**（左到右，§4）——登记关闭 |
 | Map/Set 迭代序 | 未提及 | **显式 unspecified**（§6.3，诚实登记）——新增登记 |
-| float→int 转换 | 未提及（printf UB 风险） | **defined behavior**（saturating，§7） |
+| float→int 转换 | 未提及（禁隐式转换、无 cast 算子） | **defined behavior**（saturating，§7） |
 
-> 即：本 RFC 把 1 个 unspecified 收紧为 defined（求值序），把 1 个未提及显式登记为 unspecified（Map 迭代），把 1 个 UB 风险转为 defined（float→int saturating）——净提升「可预期」维度。
+> 即：本 RFC 把 1 个 unspecified 收紧为 defined（求值序），把 1 个未提及显式登记为 unspecified（Map 迭代），新增 1 个 defined 操作（float→int saturating cast，从定义起即不引入 UB）——净提升「可预期」维度。（printf 式 FFI UB 风险由 RFC 0009 封送修正、非本 RFC saturating 语义关闭——FFI 调用本身仍在 unsafe 域。）
 
 ---
 
@@ -285,8 +286,8 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 | §4 求值序 | §11 新增「求值顺序」小节 + §16 补注 | 规范性 |
 | §5 Drop 扩展 | §18.7 扩展 + §90 #5 补注 | 规范性 |
 | §6 Hash trait + 迭代 + 序 | §35 扩展 + §34 std.core 加 Hash trait | 规范性 |
-| §7 `as` 转换算子 | §11 表 + §15.1 转换语义 | 规范性 |
-| §8 字符串最小包 + char | §36 扩展 + §15.1 加 char 类型 + **§18.4 位复制 Copy 枚举追加 `char`**（同 `int`/`uint`/`float`/`bool`/`byte`；§74.1 Copy 摘要同步） | 规范性 |
+| §7 `as` 转换算子 | §11 表 + §15.1 转换语义 + **§17 panic 目录**（登记 `InvalidCodePoint`） | 规范性 |
+| §8 字符串最小包 + char | §36 扩展 + §15.1 加 char 类型 + **§18.4 位复制 Copy 枚举追加 `char`**（同 `int`/`uint`/`float`/`bool`/`byte`；§74.1 Copy 摘要同步）+ **§17 panic 目录**（登记 `InvalidUtf8`） | 规范性 |
 | §9 build profile 配置 | §30.1 ail.toml [profile] | 规范性（工具链） |
 | §10 交叉更新 | RFC 0005 §6 + 附录 B #7 关闭 | 同步 |
 
@@ -294,7 +295,7 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 
 ## 13. 开放问题
 
-1. **`as` 优先级定位**——已定为**高于乘除算术**（§7，对齐 Rust：`x as f32 * 2.0` = `(x as f32) * 2.0`、低于一元前缀）；精确表内级号待 §11 运算符表落地时编入。
+1. **`as` 优先级定位**——已定为**高于乘除算术、低于一元前缀**，产生式 `cast_expr := unary ("as" type)*`（操作数 `unary`，嵌于 §27 `mul`/`unary` 之间，§7）；精确表内级号待 §11 运算符表落地时编入。
 2. **复合赋值别名语义**——§4 `x += e` 的读-求-写序在安全代码中无歧义（borrow 不逃逸），但若未来引入 `unsafe` 别名，需复查。
 3. **有序 Map 变体**——§6.3 默认未指定；是否引入 `SortedMap<K,V>`（BTree，迭代=K 升序，需 Ord）作为标准库类型，留 review（性能 vs 确定性 trade-off）。
 4. **无效 UTF-8 迭代行为**——§8 声明 `string` 维持有效 UTF-8 不变量（构造即校验），故 `for ch in s` / `char_count()` 正常路径永不遇无效字节；`InvalidUtf8` panic 仅作该不变量的**防御性违约 panic**（已收敛为 panic，非两选一选项）。若未来引入非校验构造路径（如 unsafe 字节缓冲直接重解释），再议其解码失败语义。
