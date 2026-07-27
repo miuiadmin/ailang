@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3，pass-3 报 6 confirmed [0H/5M/1L] 已修正、待 pass-4 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1）|
+| **状态** | 草案（Draft v1）—— 待 review（已跑对抗式 workflow pass-1/pass-2/pass-3/pass-4，pass-4 报 4 confirmed [0H/4M/0L] 已全部修正、待 pass-5 复验；目标收敛 0H/0M/0L，对齐 RFC 0001 v6 / 0002 v8 / 0003 v5 / 0004 v5 / 0005 v1 / 0006 v1 / 0007 v1）|
 | **目标版本** | **v0.3+**（**不触动 v0.2.1 冻结规范**：§1–§94 语义决断、56 关键字、110 决议均不变；TaskHandle 新查询方法 `is_failed`/`status`/`failure` 为 `std.async` 方法非关键字——同 `cancelled`/`yield` 先例；`AILxxxx` 错误码为登记表标识符非关键字；零新关键字、零新文法产生式）|
 | **日期** | 2026-07-27 |
 | **分级** | **P0-3**（综合判断 [`docs/research/synthesis-2026-07.md`](../research/synthesis-2026-07.md) §6 第四优先级；[`deep-review-2026-07.md`](../research/deep-review-2026-07.md) 可观测维度 4.0「运行期近零」+ P1「Task 失败语义闭环（RFC 0003 已依赖）」；[RFC 0003](./0003-pbt-fuzzer.md) PBT 每 trial 独立 Task 捕获 panic 的契约前置）|
@@ -57,11 +57,12 @@ pub enum Severity { Error, Warning, Note, Hint, Help }
 //      任一 severity（含 Help）均可携带 suggestion，Help 不蕴含 suggestion、suggestion 有无不取决于 severity
 
 pub enum DiagnosticCategory {
-    Lex, Parse, Names, Type, Borrow, Effect, Visibility, Contract, Concurrent, Runtime, Ffi, Codegen, Other
+    Lex, Parse, Names, Type, Borrow, Effect, Visibility, Contract, Concurrent, Runtime, Ffi, Codegen
 }
 //   Runtime = 运行期 panic（§5 AIL7xxx）；Ffi = FFI / ABI / 布局违规（§5 AIL8xxx）；Codegen = lowering / 代码生成失败
+//   **无 `Other` 兜底变体**——每条诊断**必须**归入 12 类之一（若诊断跨类，归属主类别）；这维持 `category`↔AILxxxx 段的双射、闭合 §5「每个诊断携带稳定 DiagnosticCode」契约（AI 按 slug 匹配）。若实现遇到确无法归类的新型诊断，属诊断分类法缺陷、应扩类别而非兜底（AIL0xxx 为 ICE「不该发生」、与 Other「真实但跨类」语义不同、不可复用）。
 
-pub struct RelatedSpan { pub label: String, pub span: Span }      // 「定义于此」「前一次借用于此」
+pub struct RelatedSpan { pub label: String, pub span: Optional<Span> }      // 「定义于此」「前一次借用于此」；Optional span 承载 span-less 子注记（如「此为已知问题」「以 debug 模式编译」）——恢复冻结 §69.3 `notes: Vec<(String, Option<Span>)>` 的 span-less 子注记能力（`related` 取代 `notes`、不应丢失该能力）；`label` 保持必需
 
 pub struct Suggestion { pub span: Span, pub replacement: String } // 机器可应用补丁（span → 替换文本）
 
@@ -100,10 +101,10 @@ pub struct Diagnostic {
 | `diagnostics_schema_version` | string（semver） | 是 | 本行 schema 版本（顶层，与 `Diagnostic` 同对象） |
 | `severity` | enum string：`"error"\|"warning"\|"note"\|"hint"\|"help"` | 是 | §4.1 Severity 5 级的 JSON 串形（小写） |
 | `code` | object `{number, slug}` | 是 | `{number:"AILxxxx", slug:"kebab-case"}`；slug 跨版本稳定（见下） |
-| `category` | enum string：`"lex"\|"parse"\|"names"\|"type"\|"borrow"\|"effect"\|"visibility"\|"contract"\|"concurrent"\|"runtime"\|"ffi"\|"codegen"\|"other"` | 是 | §4.1 DiagnosticCategory 的 JSON 串形（小写）；`"runtime"` 对应 AIL7xxx 运行期 panic |
+| `category` | enum string：`"lex"\|"parse"\|"names"\|"type"\|"borrow"\|"effect"\|"visibility"\|"contract"\|"concurrent"\|"runtime"\|"ffi"\|"codegen"` | 是 | §4.1 DiagnosticCategory 的 JSON 串形（小写）；`"runtime"` 对应 AIL7xxx 运行期 panic（无 `"other"`——对齐 §4.1 无兜底变体，维持 category↔AILxxxx 段双射） |
 | `message` | string | 是 | 人读文本（可跨版本演进，非契约） |
 | `span` | `Span`（见下） | 是 | 主定位 |
-| `related` | array of `{label, span}` | 否 | 结构化多定位；空时可省 |
+| `related` | array of `{label, span?}` | 否 | 结构化多定位；空时可省；`span` 可选（对齐 §4.1 `RelatedSpan.span: Optional<Span>`，承载 span-less 子注记——恢复冻结 §69.3 `notes: Vec<(String, Option<Span>)>` 能力） |
 | `suggestion` | object `{span, replacement}` | 否 | 机器可应用补丁；无建议时省略 |
 
 **`Span` 规范形状**（本协议 JSON 的诊断定位形状——**非声称「全规范统一」**：§69.1 编译器内部 `Span = {start, end, line, col}`（无 `file`，文件由编译会话上下文持有）与 §24 `.ailmeta` `span = {file, line_start, col_start, line_end, col_end}`（schema 字段名不同、含 `file`、双端点）**各自保持既有形状不变**，本协议**不**改写二者；JSON `Span` 为诊断发射协议的**专用形状**，含 `file` 因诊断须跨文件定位。与既有形状的映射见下「形状映射」。）：
@@ -125,6 +126,7 @@ pub struct Diagnostic {
 
 - `code.slug` 为**跨版本稳定标识**（AI 工具按 slug 匹配，不按可能重编的 number）。
 - `ailc --diagnostics-format=json` 退出码：有 Error 级诊断 → 非零；仅 Warning/Note/Hint/Help → 零（不阻断）。
+- **发射流**：JSON Lines 输出到 **stderr**（对齐 rustc/clang 诊断惯例）；**stdout** 保留给 `--print` 类编译产物输出（如 `ailc --print=ast`）。human 格式（默认）与 json 格式**共享同一 stderr 流**——诊断与编译产物分流，使 `ailc --diagnostics-format=json 2>&1 | jq` 管道与 CI / 编辑器集成无歧义（闭合 RFC 0005 §3 #4「诊断必须结构化」MUST 条款对发射流的 normative 歧义）。
 - 未来可扩 `sarif`（开放问题 #3），但 `json` 为 v0.3 必备。
 
 > 此协议是「结构化诊断一等公民」AI-era 加法（研究存档 §9）的落地——把编译器**吐给 AI 的失败**从人读文本提升为稳定 schema，使 AI 自修复 / fuzz 反例闭环（RFC 0003）/ 验证器结构化结果（RFC 0004）有共同的机器输入。
@@ -220,7 +222,17 @@ enum TaskStatus { Created, Running, Waiting, Completed, Cancelled, Failed }
 struct TaskFailure {
     code: DiagnosticCode,        // panic 码（§5），如 AIL7001 arithmetic-overflow；非 Optional——§17 全部 panic 触发均有 AIL7xxx 码（含显式 panic AIL7010），故 Failed 必有稳定 code
     message: string,             // panic 人读消息
-    span: Optional<Span>,        // 源码定位（若可恢复）
+    span: Optional<FileSpan>,    // 运行期源码定位（若可恢复）；FileSpan 见下
+}
+
+// FileSpan（std.core 运行期定位类型，§34 落地）——{ file: string, line: uint32, col: uint32 }
+//   非 §69.1 编译器内部 Rust Span（Part IV 资料性、ail 不可名、且无 file 字段），
+//   亦非 §4.2 JSON 发射形状（序列化形状、非内存类型）。
+//   TaskFailure.span: Optional<FileSpan> 使全局未处理任务失败处理器（§6.3 #3）能定位运行期 panic 的源文件——闭合 Fail-time 投递的可观测目标。
+struct FileSpan {
+    file: string,                // 源文件路径（相对包根或绝对）
+    line: uint32,                // 行号（1-based）
+    col: uint32,                 // 列号（1-based，按 Unicode 标量值计字符数，对齐 §4.2 JSON Span col 语义）
 }
 ```
 
@@ -310,6 +322,7 @@ struct TaskFailure {
 | §6 RFC 0003 trial 捕获契约（显式 `h.join()` + `failure()` ack） | RFC 0003 §4.2 步 2-3「先 join 后观测」 + 「唯一可观测 unwind 边界」 | ✅ 定义该边界并提供非传播观测序列（§6.3 #2） |
 | §4.2 JSON `Span` 为**编译器诊断发射协议**专用形状（非声称全规范统一、非声称覆盖 PBT runner 输出） | §69.1 内部 `Span`（无 file）/ §24 `.ailmeta` span（字段名不同）/ RFC 0003 §9.6 PBT 反例 span（§24 形、归 RFC 0003 自身 schema） | ✅ 既有形状各自不变；本协议 JSON `Span` 含 `file`、`col` 定义为 Unicode 字符列；映射关系显式给出（不覆写 §69.1/§24 冻结形状、不引入实现定义行为）；**PBT 反例 span 形状不**经本协议——本 RFC 仅定义编译器诊断 JSON `Span` |
 | §4.1 DiagnosticCategory 含 `Runtime` 变体 | §5 AIL7xxx 运行期 panic 段 | ✅ 运行期 panic 有忠实 category（`category:"runtime"`）；Ffi/Codegen 对应 8xxx，三段各有归宿 |
+| §4.1 DiagnosticCategory 12 变体无 `Other` 兜底 | §5.1 8 段（AIL1xxx–AIL8xxx，category→段多对一） | ✅ `category`↔AILxxxx 段双射完备、无孤儿 category（无 Other 兜底；AIL0xxx ICE 与 Other「真实但跨类」语义不同、不可复用；新型诊断应扩类别而非兜底） |
 | 零新关键字 | §9（56）；`is_failed`/`status`/`failure` 为 std.async 方法（§87 先例）、`TaskStatus`/`TaskFailure`/`DiagnosticCode` 为类型词 | ✅ 已核查 |
 | 零新产生式 | §27 不动；§69.3 为编译器内部 struct、§21.8 为 std API + 生命周期图 | ✅ 已核查 |
 
@@ -324,7 +337,7 @@ struct TaskFailure {
 | §5 AILxxxx 编号空间 + 登记 | §18.2 展开 + 附录 E（错误码登记表） | 规范性（编号空间 + 段边界不变量）+ 资料性（登记表种子码） |
 | §5 AIL7008/7009（§20 requires/ensures 运行期违约→panic） | §17 line 736「已知 panic 原因」清单补注（**声明非穷尽**）+ §20 line 990 / §27 line 1480 补违约→panic 条目 | 规范性（**gap-fill**：冻结 §20/§27 仅标「运行期断言」、未定失败行为；本 RFC 显式定义为 panic 并分配 AIL7008/7009——与 §92 #2 T(expr) 违约→panic ConstraintViolation 同族。合并后 §17 清单加「requires/ensures 运行期违约（AIL7008/7009）」一项或显式声明原清单非穷尽、由 §5 AIL7xxx 段闭合） |
 | §6 TaskHandle 错误态 | §21.8 生命周期图 + §21.9 并发错误表补注 + §87 #4 补注 | 规范性（Part I 并发） |
-| §6 `TaskStatus` / `TaskFailure` 类型 | §34 std.core / §37 std.async 类型表 | 规范性（std API） |
+| §6 `TaskStatus` / `TaskFailure` / `FileSpan` 类型 | §34 std.core（`FileSpan` / `TaskFailure`）/ §37 std.async（`TaskStatus`）类型表 | 规范性（std API；`FileSpan` 为运行期定位类型，**非** §69.1 编译器内部 Span——后者无 `file` 字段、ail 不可名） |
 | §7 交叉更新 | RFC 0005 §3 / §1.5.4 + RFC 0003（`panic_symbol`→`slug`）/ 0004 引用更新 | 同步 |
 
 ---
@@ -366,6 +379,13 @@ pass-1 摘要：① 5xxx(编译期)/7xxx(运行期) 边界 + AIL7008/7009 + AIL7
 - **F4（L，taskhandle-failed-state-closure）**：§6.1 Cancelled 注释从「Running/Waiting 任一」收紧为冻结 §21.8 的「Waiting → Cancelled，仅在 await 点生效；CPU-bound 须 task.yield() 让出」——图与注释、注释与 §21.8 三者自洽。
 - **F5（M，join-failure-propagation）**：与 F3 同根——Fail-time 投递一并闭合 immortal handle 未 ack 静默漏洞；§6.3 设计说明弱化「最终必经全局处理器出口」的过强声称（改为 Fail-time 已使长驻进程亦能及时报告，exit-sweep 退为兜底）。
 - **F6（M，ai-consumability-0008）**：§4.2 撤回「RFC 0003 PBT 反例 span 经本协议 JSON `Span` 发射」单方面断言——本 RFC 仅定义编译器诊断发射 JSON `Span`；PBT 反例 span 归 RFC 0003 §9.6 自身 schema（现行 §24 形、跨 RFC 边界不代为登记）。§8 自洽表同步。
+
+**pass-4 报 0H / 4M / 0L = 4 条 confirmed**（default-refute workflow，raw 全部 confirm 无 refute），已逐条修正、待 pass-5 复验：
+
+- **F1（M，diagnostic-protocol-soundness）**：§4.1 `RelatedSpan.span` 由 `Span`（必需）改为 `Optional<Span>`；§4.2 `related` JSON 字段 `{label, span}` 改 `{label, span?}`（span 可选）——恢复冻结 §69.3 `notes: Vec<(String, Option<Span>)>` 的 span-less 子注记能力（`related` 取代 `notes` 时丢失的能力）；`label` 保持必需。
+- **F2（M，diagnostic-protocol-soundness）**：§4.2 加「发射流」条款——JSON Lines 输出到 **stderr**（对齐 rustc/clang）、stdout 留给 `--print` 编译产物；human / json 共享同一 stderr 流——闭合 RFC 0005 §3 #4「诊断必须结构化」MUST 条款对发射流的 normative 歧义（CI / 编辑器集成无 stdout/stderr 歧义）。
+- **F3（M，ai-consumability-0008）**：§4.1 `DiagnosticCategory` 删 `Other` 兜底变体（12 变体留）；§4.2 JSON `category` 删 `"other"`——维持 `category`↔AILxxxx 段双射、闭合 §5「每诊断一稳定 code」契约（AIL0xxx ICE 与 Other「真实但跨类」语义不同、不可复用）；§4.1 补无兜底 rationale；§8 自洽表加 12 变体无 Other 核查行。
+- **F4（M，ai-consumability-0008）**：§6.2 新增 `FileSpan`（std.core 运行期定位类型 `{file, line, col}`、§34 落地）、`TaskFailure.span` 改 `Optional<FileSpan>`——非 §69.1 编译器内部 Span（无 file、ail 不可名）、非 §4.2 JSON 发射形状；闭合全局失败处理器（§6.3 #3）定位运行期 panic 源文件的可观测目标；§9 落地映射同步加 FileSpan。
 
 > 本批是「可观测」主题，验证重心在**协议/契约的完备性与 soundness**（尤其 join 失败传播无静默吞、诊断 JSON schema 对 AI 稳定可消费），比 0006 的形式化、0007 的确定性更偏「契约正确性 + 不变量守住」。
 
