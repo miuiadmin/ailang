@@ -117,7 +117,7 @@ trait Hash {
 - **基础类型实现**：`int`/`uint`/`bool`/`float`/`byte`/`char` 直接实现 `Hash`（值经 `Hasher` 写入）；`string` 实现 `Hash`（UTF-8 字节序列）。**`float` 的 `Hash` 须与其 `Eq` 一致**（守住 `a == b ⟹ hash(a) == hash(b)` 不变量）：IEEE 754 下 `+0.0 == -0.0` 为真（§90 #2），故 `float` 的 `Hash` **必须**把 `+0.0` 与 `-0.0` 归一为同一哈希（按数值而非位模式）；`NaN ≠ NaN`（§90 #2），其相等前提为假、对 `Hash` 不施加一致性约束（实现可按位模式或固定值，因 `Eq` 已排除其相等匹配，查找 NaN 键永不命中）。
 - **语义类型**：透明别名（`kind: alias`）继承 base 的 `Hash`（透明别名不改变类型身份，按 §15.3 与 base 同一）；名义 semantic（`kind: semantic`，§15.3）的 `Hash` **不自动继承**——`Hash` 是**运算 trait**（带方法 `fn hash(...)`），属 §15.3 / §92 #7 锁定的「marker vs 运算」二分中的**运算类**，与 `Eq` / `Ord` 同类，**须显式实现**（v0.3 impl 语法落地后），保持 newtype 语义安全与 `Hash`/`Eq` 对称（二者皆须显式实现，避免「`Eq` 显式而 `Hash` 隐式继承」导致二者可能不一致 → 破坏 `a == b ⟹ hash(a) == hash(b)` 不变量）。唯一自动经 base 的例外是 `Display`（§15.3 已锁定的封闭例外集，非运算 trait）。
 - **Map/Set 的 `K` / `T` 约束**：`Map<K, V>` 要求 `where { Hash<K>, Eq<K> }`；`Set<T>` 要求 `where { Hash<T>, Eq<T> }`（插入 / 查找需哈希 + 相等）。
-- `Hasher` 为 std.core 类型（默认 SipHash-1-3，对齐 Rust HashMap 默认；seed 随机化以抗 HashDoS）。
+- `Hasher` 为 std.core 类型（默认 SipHash-1-3，对齐 Rust HashMap 默认；**seed 运行期每进程生成**——对齐 Rust `RandomState`，二进制可复现（seed 不烘焙进编译产物，故与 RFC 0009 可复现构建无冲突）；seed 随机化以抗 HashDoS）。
 
 ### 6.2 迭代方法
 
@@ -138,11 +138,12 @@ trait Hash {
 - 规范**显式声明**此为未指定（不假装有序），需确定序的场景**必须**显式排序：
 
 ```ail
-let pairs = map.iter().to_list()        // List<(K,V)>，序未指定
-pairs.sort_by_key(|(k, _)| -> k)         // 显式排序为 K 升序（需 Ord<K>）
+// 示意：物化 + 排序 API 随 std.collections 落地；排序本身复用冻结 fn sort（§34）
+let pairs = map.iter().collect()         // List<(K, V)>，序未指定（collect 随 std.collections）
+let sorted = sort(pairs)                 // fn sort<T>(List<T>) where { Ord<T> }（§34）；需 Ord<(K,V)>
 ```
 
-**trade-off**：强制 Map 有序（如改 LinkedHashMap / BTreeMap 底层）牺牲性能（违背「极致性能」目标）；默认未指定 + 显式排序路径，兼顾性能与可控性。**有序变体**（`SortedMap<K,V>`，BTree 底层，迭代=K 升序）作为可选标准库类型，留开放问题 #3（是否引入）。
+**trade-off**：强制 Map 有序（如改 LinkedHashMap / BTreeMap 底层）牺牲性能（违背「极致性能」目标）；默认未指定 + 显式排序逃生通道（物化 `iter()` 为 `List` 后用冻结 `fn sort` §34 排序；元组 `Ord` 派生与按-key 排序便利方法、`collect` / `to_list` 物化方法留 `std.collections`），兼顾性能与可控性。**有序变体**（`SortedMap<K,V>`，BTree 底层，迭代=K 升序）作为可选标准库类型，留开放问题 #3（是否引入）。
 
 > 此决断为 RFC 0005 §6 **未提及**的 Map/Set 迭代序**新增一条未指定行为登记**（诚实登记，非假装有序），与本 RFC §10 表一致；求值序的既有未指定登记（RFC 0005 附录 B 遗留 #7）则由 §4 收紧关闭。
 
@@ -175,6 +176,8 @@ cast_expr := postfix "as" type          // x as int / x as float32 / x as uint8
 | `bool` ↔ 数值 | **禁止**（编译错误）——避免 C 的隐式 bool 真值陷阱。`if` 为语句（§27）、不产出值，故 `(if b 1 else 0)` **非合法 AILang**；需数值化时用 std.core 方法 `b.to_int()`（`true→1` / `false→0`），或在函数体内用 `match` |
 | `char` ↔ 整数（任意宽度/符号） | `char as <整数类型>` = Unicode 标量值（零扩展到目标宽度；目标过窄则按整数收窄规则截断，定义行为）；`<整数类型> as char` 取值须为合法标量值（U+0000–U+10FFFF，非 surrogate），否则 panic `InvalidCodePoint`（签名类型负值必失败） |
 
+> **合法转换集为封闭集合**：`as` **仅**支持上表所列转换（基础数值类型之间、与 `char` / `bool` 之间）；所有其他 `as` 转换（含 `char` ↔ `float`、enum 判别值、`raw_pointer<T>` ↔ `raw_pointer<U>` / ↔ 整数、struct / `Optional` ↔ 数值等）均为**编译错误**。`raw_pointer` 相关 cast 属 unsafe 域（§25.1 / §90 #4），不入本表——闭合「安全代码永不 UB」的 soundness 论证（表外无未定义转换）。
+
 **设计说明**：
 
 - 「禁隐式转换、转换必须显式」（§11 现状）现在有了**显式算子** `as`——闭合 synthesis #3「禁隐式却无 cast」缺口，修正「printf 示例自触 UB」（深度评审 §可预期）。
@@ -188,6 +191,8 @@ cast_expr := postfix "as" type          // x as int / x as float32 / x as uint8
 落地形态：§36 扩展 + 引入 `char` 类型（std.core，非关键字）。
 
 **决断**：
+
+> **`string` 维持有效 UTF-8 不变量**（构造即校验）：`string` 值恒为合法 UTF-8 序列——构造期（字面量 / `string` 构造 / `byte`→`string` 转换）校验，非法字节输入为构造期错误或 panic `InvalidUtf8`。故下文 `iter` / `char_count` / `Eq` 等 UTF-8 解码型方法**正常路径永不遇无效字节**；§8.3 / 开放问题 #4 的 `InvalidUtf8` panic 退化为该不变量的**防御性违约 panic**（非正常运行路径）。
 
 1. **`length()` = UTF-8 字节长度**（O(1)，直接取缓冲长度）——对齐 Rust `String::len()` / Go `len(string)`，性能优先。
    - 另提供 `char_count()` = Unicode 码点数（O(n) 遍历解码），供「字符数」语义需求。
@@ -292,9 +297,9 @@ overflow-checks = false    # 整数算术二补数回绕（§90 #1 release 规�
 1. **`as` 优先级定位**——已定为**高于乘除算术**（§7，对齐 Rust：`x as f32 * 2.0` = `(x as f32) * 2.0`、低于一元前缀）；精确表内级号待 §11 运算符表落地时编入。
 2. **复合赋值别名语义**——§4 `x += e` 的读-求-写序在安全代码中无歧义（borrow 不逃逸），但若未来引入 `unsafe` 别名，需复查。
 3. **有序 Map 变体**——§6.3 默认未指定；是否引入 `SortedMap<K,V>`（BTree，迭代=K 升序，需 Ord）作为标准库类型，留 review（性能 vs 确定性 trade-off）。
-4. **无效 UTF-8 迭代行为**——§8 `for ch in s` 遇无效字节序列：panic `InvalidUtf8`（严格）或替换 U+FFFD（宽容）？推荐 panic（安全代码不静默吞错），留 review。
+4. **无效 UTF-8 迭代行为**——§8 声明 `string` 维持有效 UTF-8 不变量（构造即校验），故 `for ch in s` / `char_count()` 正常路径永不遇无效字节；`InvalidUtf8` panic 仅作该不变量的**防御性违约 panic**（已收敛为 panic，非两选一选项）。若未来引入非校验构造路径（如 unsafe 字节缓冲直接重解释），再议其解码失败语义。
 5. **char 与整数互转**——§7 `uint as char` 非法标量 panic；是否提供 `char::from_uint_safe() -> Optional<char>` 非 panic 路径，留 std API 设计。
-6. **Hash 随机化与可复现构建**——§6.1 Hasher seed 随机化抗 HashDoS，但与「可复现构建」（供应链 lockfile，P0-4）可能冲突——是否提供 fixed-seed 模式，留 P0-4。
+6. **Hash seed：运行期确定性 vs HashDoS 抗性**——§6.1 seed 运行期每进程生成（对齐 Rust `RandomState`，二进制可复现、与构建可复现性**无冲突**）；开放的是**运行期确定性** trade-off：是否为测试 / 回放提供 fixed-seed 运行期模式（同程序跨运行同序）。归属 `std.collections` / 后续 RFC（不再指向已收尾的 P0-4——后者未承接 Hasher seed）。
 
 ---
 
